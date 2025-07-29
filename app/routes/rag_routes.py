@@ -1,189 +1,334 @@
-import asyncio
-import json
-import math
-from flask import Blueprint, request, jsonify
-from app.services.utils import (
-    get_raw_data_pdf, get_raw_data_txt, get_raw_data_from_docx,
-    get_raw_data_csv, get_raw_data_xlsx, recursive_chunker
-)
-from app.services.openai_services import (
-    store_vector_data_azure, process_user_query,
-)
-from app.services.gemini_services import generate_influencer_list
+"""
+Advanced Production-Ready RAG Routes
+- Asynchronous Flask implementation
+- ChromaDB for vector storage
+- Azure OpenAI integration
+- Multi-user support with conversation history
+"""
+
 import os
+import re
 import uuid
-import time
+import json
 import logging
+from datetime import datetime
+from io import BytesIO
+from typing import Dict, List, Optional, Any
+import time
+import hashlib
+
+# Flask and async libraries
+from flask import Blueprint, request, jsonify
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+# Document processing
+import docx2txt
+from pypdf import PdfReader
+
+# Vector database
+import chromadb
+from chromadb.config import Settings
+
+# Azure OpenAI
+import openai
+from openai import AsyncAzureOpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+# Import services
+from app.services.openai_services import (
+    get_embeddings, process_and_store_document, 
+    query_vector_db, generate_answer, SmartCache
+)
+from app.services.utils import (
+    clean_text, extract_text_from_file, chunk_text
+)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("rag_system.log")
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Use absolute path for embeddings directory
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-EMBEDDINGS_DIR = os.path.join(BASE_DIR, '..', '..', 'embeddings')
-STORAGE_DIR = os.path.join(BASE_DIR, '..', '..', 'storage')
-
+# Create blueprint
 rag_routes = Blueprint('rag_routes', __name__)
 
-@rag_routes.route('/upload', methods=['POST'])
-async def upload_document():
-    try:
-        start_time = time.time()
-        file = request.files['file']
-        uuid_val = str(uuid.uuid4())
-        file_name = file.filename
+# Initialize ChromaDB with optimized settings
+chroma_client = chromadb.PersistentClient(
+    path=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
+    settings=Settings(
+        anonymized_telemetry=False,
+        allow_reset=True,
+        persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db")
+    )
+)
 
-        # Validate file extension
-        if not any(file_name.lower().endswith(ext) for ext in ['.txt', '.pdf', '.docx', '.csv', '.xlsx', '.xls']):
-            logger.error("Unsupported file extension")
-            return jsonify({"success": False, "message": "Unsupported file extension"}), 400
+# Create a thread pool for CPU-bound tasks
+executor = ThreadPoolExecutor(max_workers=8)
 
-        # Save file locally
-        storage_dir = os.path.join(STORAGE_DIR, uuid_val)
-        os.makedirs(storage_dir, exist_ok=True)
-        file_path = os.path.join(storage_dir, file_name)
-        file.save(file_path)
-        logger.info(f"File saved: {file_path}, Time: {time.time() - start_time:.2f}s")
+# In-memory conversation history store (in production, use Redis or a database)
+conversation_history = {}
 
-        # Extract text
-        extract_start = time.time()
-        if file_name.lower().endswith('.txt'):
-            raw_text = get_raw_data_txt(file_path)
-        elif file_name.lower().endswith('.pdf'):
-            raw_text = get_raw_data_pdf(file_path)
-        elif file_name.lower().endswith('.docx'):
-            raw_text = get_raw_data_from_docx(file_path)
-        elif file_name.lower().endswith('.csv'):
-            raw_text = get_raw_data_csv(file_path)
-        elif file_name.lower().endswith(('.xlsx', '.xls')):
-            raw_text = get_raw_data_xlsx(file_path)
-        else:
-            logger.error("File extension validation failed after initial check")
-            return jsonify({"success": False, "message": "File extension validation failed"}), 400
-        logger.info(f"Text extracted, Time: {time.time() - extract_start:.2f}s")
-        logger.info(f"Extracted text (first 100 chars): {str(raw_text)[:100] if raw_text else 'None'}")
+# Helper function to run async functions in a thread
+def run_async(coro):
+    return asyncio.run(coro)
 
-        # Chunk text
-        chunk_start = time.time()
-        text_chunks = recursive_chunker(raw_text)
-        logger.info(f"Text chunked ({len(text_chunks)} chunks), Time: {time.time() - chunk_start:.2f}s")
+# Health check endpoint
+@rag_routes.route('/health', methods=['GET'])
+def health_check():
+    """Simple health check endpoint."""
+    return jsonify({
+        "status": "healthy",
+        "message": "RAG system is running",
+        "timestamp": datetime.now().isoformat()
+    })
 
-        # Store embeddings
-        embedding_dir = os.path.join(EMBEDDINGS_DIR, uuid_val)
-        os.makedirs(embedding_dir, exist_ok=True)
-        embed_start = time.time()
-        await store_vector_data_azure(text_chunks, embedding_dir)
-        logger.info(f"Embeddings stored, Time: {time.time() - embed_start:.2f}s")
-
-        total_time = time.time() - start_time
-        logger.info(f"Total upload time: {total_time:.2f}s")
-
-        return jsonify({
-            "success": True,
-            "message": "File uploaded and processed successfully",
-            "uuid": uuid_val
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error in upload: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
-
-@rag_routes.route('/qna', methods=['POST'])
-async def qna():
-    try:
-        data = request.get_json()
-        uuid_val = data.get('uuid')  # Optional
-        question = data.get('question')
-
-        if not question:
-            return jsonify({"success": False, "message": "Question is required"}), 400
-
-        # Initialize response structure
-        response_data = {
-            "success": True,
-            "document_used": False,
-            "search_parameters": None,
-            "logs": []
-        }
-
-        # Process the query
-        processing_uuid = uuid_val if uuid_val else "default_"+str(uuid.uuid4())
-        ai_response = await process_user_query(processing_uuid, question, [])
-        
-        # Handle the response structure
-        if 'error' in ai_response:
-            response_data["success"] = False
-            response_data["error"] = ai_response.get("error", "Unknown error")
-        
-        # Update response data from AI response
-        response_data["document_used"] = ai_response.get("context_used", False)
-        response_data["logs"] = ai_response.get("logs", [])
-        
-        # Handle search parameters
-        if 'search_parameters' in ai_response:
-            if isinstance(ai_response['search_parameters'], dict):
-                response_data["search_parameters"] = ai_response['search_parameters']
-            else:
-                try:
-                    response_data["search_parameters"] = json.loads(ai_response['search_parameters'])
-                except (json.JSONDecodeError, TypeError):
-                    response_data["search_parameters"] = {
-                        "raw_response": str(ai_response['search_parameters']),
-                        "note": "Response formatting issue"
-                    }
-        else:
-            response_data["search_parameters"] = None
-            response_data["success"] = False
-            response_data["error"] = "No search parameters generated"
-
-        return jsonify(response_data)
-
-    except Exception as e:
-        logger.error(f"Unexpected error in QnA: {str(e)}")
-        return jsonify({
-            "success": False,
-            "message": "Internal server error",
-            "error": str(e),
-            "logs": [{"type": "error", "message": f"System error: {str(e)}"}]
-        }), 500
+# File upload endpoint
+@rag_routes.route('/api/upload', methods=['POST'])
+def upload_files():
+    """Handle multi-file upload to a specified collection"""
+    if 'files' not in request.files:
+        return jsonify({"error": "No files provided"}), 400
     
-@rag_routes.route('/discover-influencers', methods=['POST'])
-async def discover_influencers():
-    """
-    Endpoint to discover influencers based on search parameters
-    """
+    collection_name = request.form.get("collection_name", "default_collection")
+    results = []
+    
+    for file in request.files.getlist('files'):
+        if file.filename == '':
+            continue
+            
+        result = run_async(process_and_store_document(file, collection_name, chroma_client))
+        results.append({
+            "filename": file.filename,
+            **result
+        })
+    
+    return jsonify({
+        "collection": collection_name,
+        "results": results
+    })
+
+# Delete all chunks of a specific file from a collection
+@rag_routes.route('/api/collections/<collection_name>/files/<file_id>', methods=['DELETE'])
+def delete_file(collection_name, file_id):
+    """Delete a file with protection against empty collection"""
+    try:
+        collection = chroma_client.get_collection(collection_name)
+        
+        # First check if this is the last file
+        all_files = collection.get(include=["metadatas"])
+        unique_file_ids = {meta['file_id'] for meta in all_files['metadatas']}
+        
+        if len(unique_file_ids) == 1 and file_id in unique_file_ids:
+            return jsonify({
+                "error": "Cannot delete the last file in collection",
+                "suggestion": "Delete the entire collection instead"
+            }), 400
+        
+        # Proceed with deletion if not the last file
+        results = collection.get(where={"file_id": file_id})
+        if not results['ids']:
+            return jsonify({"error": "File not found"}), 404
+            
+        collection.delete(ids=results['ids'])
+        return jsonify({
+            "deleted": len(results['ids']),
+            "remaining_files": len(unique_file_ids) - 1
+        })      
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# List all unique files in a collection with metadata
+@rag_routes.route('/api/collections/<collection_name>/files', methods=['GET'])
+def list_files(collection_name):
+    """Get all unique files in a collection with metadata"""
+    try:
+        collection = chroma_client.get_collection(collection_name)
+        
+        # Get all metadata (paginated if collection is large)
+        results = collection.get(include=["metadatas"])
+        
+        # Aggregate by file_id
+        files = {}
+        for meta in results['metadatas']:
+            file_id = meta['file_id']
+            if file_id not in files:
+                files[file_id] = {
+                    "filename": meta['filename'],
+                    "uploaded_at": meta['uploaded_at'],
+                    "chunk_count": 1  # Initialize counter
+                }
+            else:
+                files[file_id]['chunk_count'] += 1
+        
+        return jsonify({
+            "collection": collection_name,
+            "total_files": len(files),
+            "files": list(files.values())  # Convert dict to list
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 404 if "not found" in str(e).lower() else 500
+
+# Delete entire collection
+@rag_routes.route('/api/collections/<collection_name>', methods=['DELETE'])
+def delete_collection(collection_name):
+    """Delete the entire collection"""
+    try:
+        chroma_client.delete_collection(collection_name)
+        return jsonify({
+            "deleted": collection_name,
+            "message": "Collection and all its files removed"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@rag_routes.route('/api/query', methods=['POST'])
+def query():
+    """Query the vector database API endpoint."""
     try:
         data = request.get_json()
-        search_params = data.get('search_parameters')
         
-        if not search_params:
-            return jsonify({
-                "success": False,
-                "message": "Search parameters are required"
-            }), 400
-
-        # Generate influencer list using Gemini
-        result = await generate_influencer_list(search_params)
+        # Validate input
+        if not data or 'query' not in data or 'collection_name' not in data:
+            return jsonify({"status": "error", "message": "Missing required parameters"}), 400
         
-        if not result.get('success'):
-            return jsonify({
-                "success": False,
-                "message": result.get('message', 'Failed to generate influencers'),
-                "error": result.get('error')
-            }), 500
-
+        query_text = data['query']
+        collection_name = data['collection_name']
+        top_k = data.get('top_k', 5)
+        
+        # Query the vector database
+        results = run_async(query_vector_db(query_text, collection_name, top_k, chroma_client))
+        
+        # Format the response
+        formatted_results = {
+            "matches": []
+        }
+        
+        for i in range(len(results['documents'][0])):
+            formatted_results["matches"].append({
+                "document": results['documents'][0][i],
+                "metadata": results['metadatas'][0][i],
+                "score": 1 - results['distances'][0][i]  # Convert distance to similarity score
+            })
+        
         return jsonify({
-            "success": True,
-            "count": result.get('count', 0),
-            "influencers": result.get('influencers', []),
-            "logs": result.get('logs', [])
+            "status": "success",
+            "results": formatted_results
         })
-
+    
     except Exception as e:
-        logger.error(f"Error in influencer discovery: {str(e)}")
+        logger.error(f"Error in query endpoint: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@rag_routes.route('/api/generate-answer', methods=['POST'])
+def generate():
+    """Generate an answer based on context and history API endpoint with performance optimizations."""
+    try:
+        start_time = datetime.now()
+        data = request.get_json()
+        
+        # Validate input
+        if not data or 'query' not in data or 'collection_name' not in data:
+            return jsonify({"status": "error", "message": "Missing required parameters"}), 400
+        
+        query_text = data['query']
+        collection_name = data['collection_name']
+        conversation_id = data.get('conversation_id', str(uuid.uuid4()))
+        
+        # Optional parameters
+        org_info = data.get('org_info', None)
+        tone = data.get('tone', None)
+        top_k = data.get('top_k', 5)
+        
+        # Performance info
+        include_performance_info = data.get('include_performance_info', False)
+        performance_info = {}
+        
+        # Get or initialize conversation history
+        if conversation_id not in conversation_history:
+            conversation_history[conversation_id] = []
+        
+        # If history is provided in the request, use it instead
+        if 'history' in data and isinstance(data['history'], list):
+            current_history = data['history']
+        else:
+            current_history = conversation_history[conversation_id]
+        
+        # Set a timeout for the entire operation
+        try:
+            # Query the vector database with timeout
+            vector_start = datetime.now()
+            relevant_docs = run_async(asyncio.wait_for(
+                query_vector_db(query_text, collection_name, top_k, chroma_client), 
+                timeout=15.0
+            ))
+            vector_time = (datetime.now() - vector_start).total_seconds()
+            performance_info['vector_search_time'] = vector_time
+            
+            # Generate answer with timeout
+            answer_start = datetime.now()
+            answer = run_async(asyncio.wait_for(
+                generate_answer(
+                    query_text, 
+                    relevant_docs, 
+                    current_history,
+                    org_info,
+                    tone
+                ),
+                timeout=25.0
+            ))
+            answer_time = (datetime.now() - answer_start).total_seconds()
+            performance_info['answer_generation_time'] = answer_time
+            
+            # Store updated history - limit to 20 messages to prevent unbounded growth
+            if len(current_history) > 20:
+                current_history = current_history[-20:]
+            conversation_history[conversation_id] = current_history
+            
+            total_time = (datetime.now() - start_time).total_seconds()
+            performance_info['total_time'] = total_time
+            
+            response = {
+                "status": "success",
+                "answer": answer,
+                "conversation_id": conversation_id
+            }
+            
+            # Add performance info if requested
+            if include_performance_info:
+                response["performance"] = performance_info
+            
+            return jsonify(response)
+            
+        except asyncio.TimeoutError:
+            logger.warning(f"Request timed out for query: {query_text[:50]}...")
+            return jsonify({
+                "status": "error", 
+                "message": "The request took too long to process. Please try again with a simpler query."
+            }), 408
+    
+    except Exception as e:
+        logger.error(f"Error in generate-answer endpoint: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@rag_routes.route('/api/collections', methods=['GET'])
+def list_collections():
+    """List all collections in the vector database."""
+    try:
+        collections = chroma_client.list_collections()
+        collection_names = [collection.name for collection in collections]
+        
         return jsonify({
-            "success": False,
-            "message": "Internal server error",
-            "error": str(e)
-        }), 500
+            "status": "success",
+            "collections": collection_names
+        })
+    
+    except Exception as e:
+        logger.error(f"Error listing collections: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500 

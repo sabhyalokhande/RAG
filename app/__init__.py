@@ -1,9 +1,10 @@
 from flask import Flask
+from flask_cors import CORS
 from app.routes.rag_routes import rag_routes
 
 def create_app():
     app = Flask(__name__)
-    app.config.from_pyfile('../config.py')
+    CORS(app)
     
     # Register blueprints
     app.register_blueprint(rag_routes)
