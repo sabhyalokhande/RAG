@@ -1,6 +1,6 @@
 flask==2.3.3
 flask-cors==4.0.0
-openai==1.25.0
+openai>=1.30.0
 chromadb>=1.0.0
 tenacity==8.2.3
 pypdf==4.2.0
@@ -9,6 +9,6 @@ docx2txt==0.8
 numpy>=1.24.0,<2.0.0
 python-dotenv==1.0.0
 aiohttp==3.9.5
-httpx==0.24.1
+httpx>=0.27.0,<1.0.0
 packaging==24.0
 gunicorn==21.2.0
