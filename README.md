@@ -2,6 +2,19 @@
 
 A sophisticated Flask-based RAG (Retrieval-Augmented Generation) system with ChromaDB vector storage, Azure OpenAI integration, and multi-user support.
 
+## 🚀 Quick Deploy
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+**Or manually deploy to Render:**
+1. Fork this repository
+2. Connect to [Render](https://render.com)
+3. Create new Web Service
+4. Select your forked repository
+5. Use build command: `pip install -r requirements.txt`
+6. Use start command: `gunicorn run:app`
+7. Add environment variables (see deployment guide)
+
 ## 🚀 Features
 
 - **Asynchronous Processing**: High-performance async operations
@@ -30,6 +43,65 @@ A sophisticated Flask-based RAG (Retrieval-Augmented Generation) system with Chr
 - **Memory Management**: LRU cache eviction and TTL
 - **Batch Processing**: Efficient embedding generation
 - **Conversation History**: Multi-turn dialogue support
+
+## 📋 API Endpoints
+
+### HackRX API (Production Ready)
+
+#### Process Documents and Answer Questions
+```http
+POST /hackrx/run
+Content-Type: application/json
+Authorization: Bearer your-api-key
+
+{
+  "documents": "https://example.com/document.pdf",
+  "questions": [
+    "What is the grace period for premium payment?",
+    "What is the waiting period for pre-existing diseases?"
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "answers": [
+    "A grace period of thirty days is provided...",
+    "There is a waiting period of thirty-six months..."
+  ]
+}
+```
+
+#### Cache Management
+```http
+GET /hackrx/cache/status
+POST /hackrx/cache/clear
+```
+
+### Health Check
+```http
+GET /health
+```
+
+## 🚀 Deployment
+
+### Render Deployment
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+
+### Environment Variables
+```bash
+CHROMA_DB_PATH=/opt/render/project/src/chroma_db
+FLASK_ENV=production
+AZURE_OPENAI_API_KEY=your_azure_openai_key
+AZURE_OPENAI_ENDPOINT=your_azure_openai_endpoint
+```
+
+### Local Development
+```bash
+pip install -r requirements.txt
+python run.py
+```
 
 ## 📋 API Endpoints
 

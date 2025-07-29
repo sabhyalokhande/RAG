@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: influai-rag
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn run:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: CHROMA_DB_PATH
+        value: /opt/render/project/src/chroma_db
+      - key: FLASK_ENV
+        value: production
+    healthCheckPath: /health
+    autoDeploy: true 
