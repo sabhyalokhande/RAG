@@ -16,6 +16,8 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import asyncio
+import threading
+from collections import deque
 
 # Azure OpenAI
 import openai
@@ -29,6 +31,34 @@ from chromadb.config import Settings
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Rate limiting for Azure OpenAI
+class RateLimiter:
+    def __init__(self, max_requests_per_minute=60):
+        self.max_requests = max_requests_per_minute
+        self.requests = deque()
+        self.lock = threading.Lock()
+    
+    def wait_if_needed(self):
+        """Wait if we're hitting rate limits."""
+        with self.lock:
+            current_time = time.time()
+            # Remove requests older than 1 minute
+            while self.requests and current_time - self.requests[0] > 60:
+                self.requests.popleft()
+            
+            # If we've made too many requests recently, wait
+            if len(self.requests) >= self.max_requests:
+                sleep_time = 60 - (current_time - self.requests[0])
+                if sleep_time > 0:
+                    logger.warning(f"Rate limit hit, waiting {sleep_time:.2f} seconds")
+                    time.sleep(sleep_time)
+            
+            # Add current request
+            self.requests.append(current_time)
+
+# Global rate limiter - much more aggressive for speed
+rate_limiter = RateLimiter(max_requests_per_minute=10)  # Very conservative to avoid 429
 
 class SmartCache:
     """Advanced cache with TTL, size limits and LRU eviction policy."""
@@ -143,21 +173,85 @@ def initialize_openai_clients():
                 azure_endpoint=endpoint,
                 timeout=20.0
             )
-            logger.info("Azure OpenAI clients initialized successfully")
+            
+            # Test the connection by making a simple request
+            try:
+                # Test with a simple embedding request
+                test_response = sync_client.embeddings.create(
+                    input=["test"],
+                    model=os.environ.get("AZURE_DEPLOYMENT_EMBEDDING", "text-embedding-ada-002")
+                )
+                logger.info("Azure OpenAI clients initialized successfully")
+            except Exception as test_error:
+                logger.warning(f"Azure OpenAI connection test failed: {test_error}")
+                logger.info("Falling back to keyword-based search mode")
+                async_client = None
+                sync_client = None
+                
         except Exception as e:
             logger.warning(f"Failed to initialize Azure OpenAI clients: {e}")
+            logger.info("Falling back to keyword-based search mode")
             async_client = None
             sync_client = None
     else:
         logger.warning("Azure OpenAI credentials not found. Set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables.")
+        logger.info("Falling back to keyword-based search mode")
 
 # Initialize clients on module import
 initialize_openai_clients()
 
-# Optimized embedding function with improved caching
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=6))
+def simple_similarity_search(query, documents, top_k=3):
+    """Simple keyword-based similarity search as fallback when embeddings are not available."""
+    query_words = set(query.lower().split())
+    
+    # Calculate simple TF-IDF like scores
+    doc_scores = []
+    for doc in documents:
+        doc_words = set(doc.lower().split())
+        # Calculate Jaccard similarity
+        intersection = len(query_words.intersection(doc_words))
+        union = len(query_words.union(doc_words))
+        similarity = intersection / union if union > 0 else 0
+        doc_scores.append((similarity, doc))
+    
+    # Sort by similarity and return top_k
+    doc_scores.sort(key=lambda x: x[0], reverse=True)
+    return [doc for score, doc in doc_scores[:top_k] if score > 0]
+
+def generate_simple_answer(query, relevant_docs, context=""):
+    """Generate a dynamic answer based on retrieved documents when LLM is not available."""
+    query_lower = query.lower()
+    
+    # Extract key information from relevant documents
+    context_text = " ".join([doc for doc in relevant_docs['documents'][0]]) if relevant_docs and 'documents' in relevant_docs else ""
+    
+    # Dynamic answer generation based on retrieved context
+    if context_text:
+        # Extract relevant sentences from the context
+        sentences = context_text.split('.')
+        relevant_sentences = []
+        
+        # Find sentences that contain words from the query
+        query_words = query_lower.split()
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            if any(word in sentence_lower for word in query_words):
+                relevant_sentences.append(sentence.strip())
+        
+        if relevant_sentences:
+            # Return the most relevant sentence
+            return relevant_sentences[0] + "."
+        else:
+            # If no direct matches, return a summary of available information
+            return f"Based on the available documents, I found information related to your query. The documents contain relevant details that may address your question about '{query}'. Please review the document content for specific information."
+    else:
+        # No context available
+        return f"I couldn't find specific information about '{query}' in the available documents. Please ensure the documents contain relevant information for your query."
+
+# Optimized embedding function with improved caching for faster responses
+@retry(stop=stop_after_attempt(1), wait=wait_exponential(multiplier=0.05, min=0.05, max=0.5))
 async def get_embeddings(texts: List[str]):
-    """Get embeddings for a list of texts using Azure OpenAI with improved caching."""
+    """Get embeddings for a list of texts using Azure OpenAI with optimized caching for speed."""
     if not async_client:
         raise Exception("Azure OpenAI client not initialized. Please set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables.")
     
@@ -179,23 +273,39 @@ async def get_embeddings(texts: List[str]):
         # If we have texts that need embedding
         if texts_to_embed:
             try:
-                # Batch embeddings more efficiently - split into batches of 20 for large sets
-                batch_size = 20
+                # Ultra-aggressive batch size for speed
+                batch_size = 30  # Maximum batch size for fastest processing
                 all_new_embeddings = []
                 
                 for i in range(0, len(texts_to_embed), batch_size):
                     batch = texts_to_embed[i:i+batch_size]
                     
-                    # Try async client first
-                    response = await async_client.embeddings.create(
-                        input=batch,
-                        model=os.environ.get("AZURE_DEPLOYMENT_EMBEDDING", "text-embedding-ada-002")
+                    # Check token limits before sending (rough estimate: 1 token ≈ 4 characters)
+                    filtered_batch = []
+                    for text in batch:
+                        estimated_tokens = len(text) // 4
+                        if estimated_tokens > 8000:  # Leave some buffer
+                            logger.warning(f"Text too long ({estimated_tokens} tokens), truncating")
+                            # Truncate to ~6000 tokens (24000 characters)
+                            text = text[:24000]
+                        filtered_batch.append(text)
+                    
+                    # Rate limiting before API call
+                    rate_limiter.wait_if_needed()
+                    
+                    # Try async client first with aggressive timeout
+                    response = await asyncio.wait_for(
+                        async_client.embeddings.create(
+                            input=filtered_batch,
+                            model=os.environ.get("AZURE_DEPLOYMENT_EMBEDDING", "text-embedding-ada-002")
+                        ),
+                        timeout=5.0  # Ultra-aggressive timeout for speed
                     )
                     batch_embeddings = [item.embedding for item in response.data]
                     all_new_embeddings.extend(batch_embeddings)
                     
                     # Cache each embedding immediately
-                    for j, text in enumerate(batch):
+                    for j, text in enumerate(filtered_batch):
                         embedding_cache.set(text, batch_embeddings[j])
             
             except asyncio.TimeoutError:
@@ -256,16 +366,26 @@ async def process_and_store_document(file, collection_name, chroma_client):
             "chunk_index": i
         } for i in range(len(chunks))]
         
-        # Generate embeddings
-        embeddings = await get_embeddings(chunks)
-        
-        # Store with file-scoped IDs (file_id + chunk_index)
-        collection.add(
-            ids=[f"{file_id}_{i}" for i in range(len(chunks))],
-            embeddings=embeddings,
-            documents=chunks,
-            metadatas=chunk_metadata
-        )
+        # Check if Azure OpenAI is available for embeddings
+        if async_client is None:
+            # Store without embeddings for fallback mode
+            logger.warning("Azure OpenAI not available, storing documents without embeddings")
+            collection.add(
+                ids=[f"{file_id}_{i}" for i in range(len(chunks))],
+                documents=chunks,
+                metadatas=chunk_metadata
+            )
+        else:
+            # Generate embeddings
+            embeddings = await get_embeddings(chunks)
+            
+            # Store with embeddings
+            collection.add(
+                ids=[f"{file_id}_{i}" for i in range(len(chunks))],
+                embeddings=embeddings,
+                documents=chunks,
+                metadatas=chunk_metadata
+            )
         
         return {
             "status": "success",
@@ -278,8 +398,8 @@ async def process_and_store_document(file, collection_name, chroma_client):
         return {"status": "error", "message": str(e)}
 
 # Add caching to query function
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def query_vector_db(query, collection_name, top_k=5, chroma_client=None):
+@retry(stop=stop_after_attempt(1), wait=wait_exponential(multiplier=0.05, min=0.05, max=0.5))
+async def query_vector_db(query, collection_name, top_k=1, chroma_client=None):
     """Query the vector database for similar documents with caching."""
     try:
         # Create a cache key from the query and collection
@@ -289,6 +409,43 @@ async def query_vector_db(query, collection_name, top_k=5, chroma_client=None):
         if cached_result is not None:
             logger.info(f"Cache hit for query in collection {collection_name}")
             return cached_result
+        
+        # Check if Azure OpenAI is available
+        if async_client is None:
+            # Fallback to simple keyword search
+            logger.warning("Azure OpenAI not available, using fallback keyword search")
+            try:
+                collection = chroma_client.get_collection(name=collection_name)
+                # Get all documents from collection
+                all_docs = collection.get(include=["documents", "metadatas"])
+                if all_docs and all_docs['documents']:
+                    # Use simple keyword search
+                    relevant_docs = simple_similarity_search(query, all_docs['documents'], top_k)
+                    
+                    # Create a mock result structure
+                    mock_results = {
+                        'documents': [relevant_docs],
+                        'metadatas': [[]],  # Empty metadata for fallback
+                        'distances': [[0.0] * len(relevant_docs)]  # Perfect similarity for fallback
+                    }
+                    
+                    # Cache the results
+                    query_result_cache.set(cache_key, mock_results)
+                    return mock_results
+                else:
+                    # No documents in collection
+                    return {
+                        'documents': [[]],
+                        'metadatas': [[]],
+                        'distances': [[]]
+                    }
+            except Exception as e:
+                logger.error(f"Error in fallback search: {str(e)}")
+                return {
+                    'documents': [[]],
+                    'metadatas': [[]],
+                    'distances': [[]]
+                }
         
         # Get embedding for query
         query_embedding = await get_embeddings([query])
@@ -368,12 +525,9 @@ Here is the context information to help answer the user's question:
     
     return system_prompt
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=6))
+@retry(stop=stop_after_attempt(1), wait=wait_exponential(multiplier=0.05, min=0.05, max=0.5))
 async def generate_answer(query, relevant_docs, conversation_history, org_info=None, tone=None):
     """Generate an answer using Azure OpenAI with caching."""
-    if not async_client:
-        raise Exception("Azure OpenAI client not initialized. Please set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables.")
-    
     try:
         # Create a cache key from the query, relevant docs and recent history
         # Only use recent history to increase cache hits
@@ -404,6 +558,21 @@ async def generate_answer(query, relevant_docs, conversation_history, org_info=N
             
             return cached_answer
         
+        # Check if Azure OpenAI is available
+        if async_client is None:
+            # Use fallback answer generation
+            logger.warning("Azure OpenAI not available, using fallback answer generation")
+            answer = generate_simple_answer(query, relevant_docs)
+            
+            # Cache the answer
+            llm_response_cache.set(cache_key, answer)
+            
+            # Update conversation history
+            conversation_history.append({"role": "user", "content": query})
+            conversation_history.append({"role": "assistant", "content": answer})
+            
+            return answer
+        
         # Construct RAG prompt with system instructions
         system_prompt = construct_rag_prompt(query, relevant_docs, org_info, tone)
         
@@ -419,6 +588,9 @@ async def generate_answer(query, relevant_docs, conversation_history, org_info=N
         messages.append({"role": "user", "content": query})
         
         try:
+            # Rate limiting before API call
+            rate_limiter.wait_if_needed()
+            
             # Try with async client first
             response = await async_client.chat.completions.create(
                 model=os.environ.get("AZURE_DEPLOYMENT_COMPLETION", "gpt-4o-mini"),
@@ -452,4 +624,7 @@ async def generate_answer(query, relevant_docs, conversation_history, org_info=N
     
     except Exception as e:
         logger.error(f"Error generating answer: {str(e)}")
-        raise 
+        # Fallback to simple answer generation when Azure fails
+        logger.warning("Azure OpenAI failed, using fallback answer generation")
+        answer = generate_simple_answer(query, relevant_docs)
+        return answer 

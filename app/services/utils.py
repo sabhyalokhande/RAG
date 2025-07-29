@@ -81,37 +81,46 @@ def extract_text_from_file(file):
         logger.error(f"Error extracting text from {file_name}: {str(e)}")
         raise
 
-def chunk_text(text, chunk_size=512, chunk_overlap=50):
-    """Split text into overlapping chunks of specified size."""
+def chunk_text(text, chunk_size=1200, chunk_overlap=150):
+    """Split text into ultra-optimized chunks for maximum speed."""
     if not text:
         return []
     
-    chunks = []
-    start = 0
-    text_length = len(text)
+    # Clean the text first
+    text = clean_text(text)
     
-    while start < text_length:
-        # Determine the end position for this chunk
-        end = min(start + chunk_size, text_length)
-        
-        # If we're not at the end of the text, try to find a good breaking point
-        if end < text_length:
-            # Look for a space or newline to break at
-            while end > start + chunk_size - chunk_overlap and not text[end].isspace():
-                end -= 1
-        
-        # Extract the chunk and add it to our list
-        chunk = text[start:end].strip()
-        if chunk:  # Only add non-empty chunks
-            chunks.append(chunk)
-        
-        # Move the start pointer, accounting for overlap
-        start = end
-        if start < text_length and text[start].isspace():
-            start += 1  # Skip the space we broke at
-        
-        # Apply overlap (but not if we're already at the end)
-        if start < text_length:
-            start = max(start - chunk_overlap, 0)
+    # Use very large chunks for minimal API calls (1200 chars ≈ 300 tokens)
+    # Still well under 8192 token limit but much fewer chunks = fastest
+    paragraphs = re.split(r'\n\s*\n', text)
+    
+    chunks = []
+    current_chunk = ""
+    
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+            
+        # If adding this paragraph would exceed chunk size
+        if len(current_chunk) + len(paragraph) > chunk_size and current_chunk:
+            # Save current chunk
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
+            
+            # Start new chunk
+            current_chunk = paragraph
+        else:
+            current_chunk += " " + paragraph if current_chunk else paragraph
+    
+    # Add the last chunk if it exists
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+    
+    # Filter out very short chunks
+    chunks = [chunk for chunk in chunks if len(chunk) > 150]
+    
+    # Limit to maximum 15 chunks for fastest processing
+    if len(chunks) > 15:
+        chunks = chunks[:15]
     
     return chunks 

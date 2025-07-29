@@ -10,8 +10,13 @@ class Config:
     AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
     AZURE_OPENAI_API_VERSION = "2023-06-01-preview"
     
-    AZURE_DEPLOYMENT_COMPLETION = os.environ.get("AZURE_DEPLOYMENT_COMPLETION", "gpt-4o-mini")
+    # Try common deployment names - update these based on your actual deployments
+    AZURE_DEPLOYMENT_COMPLETION = os.environ.get("AZURE_DEPLOYMENT_COMPLETION", "gpt-4")
     AZURE_DEPLOYMENT_EMBEDDING = os.environ.get("AZURE_DEPLOYMENT_EMBEDDING", "text-embedding-ada-002")
+    
+    # Alternative deployment names to try
+    AZURE_DEPLOYMENT_COMPLETION_ALT = os.environ.get("AZURE_DEPLOYMENT_COMPLETION_ALT", "gpt-4o-mini")
+    AZURE_DEPLOYMENT_EMBEDDING_ALT = os.environ.get("AZURE_DEPLOYMENT_EMBEDDING_ALT", "text-embedding-ada-002")
     
     # ChromaDB Configuration
     CHROMA_DB_PATH = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
