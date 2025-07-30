@@ -17,8 +17,8 @@ from typing import Dict, List, Optional, Any
 import time
 import hashlib
 
-# Flask and async libraries
-from flask import Blueprint, request, jsonify
+# Quart and async libraries
+from quart import Blueprint, request, jsonify
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -134,7 +134,7 @@ def health_check():
 
 # File upload endpoint
 @rag_routes.route('/api/upload', methods=['POST'])
-def upload_files():
+async def upload_files():
     """Handle multi-file upload to a specified collection"""
     if 'files' not in request.files:
         return jsonify({"error": "No files provided"}), 400
@@ -146,7 +146,7 @@ def upload_files():
         if file.filename == '':
             continue
             
-        result = run_async(process_and_store_document(file, collection_name, chroma_client))
+        result = await process_and_store_document(file, collection_name, chroma_client)
         results.append({
             "filename": file.filename,
             **result
@@ -233,10 +233,10 @@ def delete_collection(collection_name):
         return jsonify({"error": str(e)}), 500
 
 @rag_routes.route('/api/query', methods=['POST'])
-def query():
+async def query():
     """Query the vector database API endpoint."""
     try:
-        data = request.get_json()
+        data = await request.get_json()
         
         # Validate input
         if not data or 'query' not in data or 'collection_name' not in data:
@@ -247,7 +247,7 @@ def query():
         top_k = data.get('top_k', 5)
         
         # Query the vector database
-        results = run_async(query_vector_db(query_text, collection_name, top_k, chroma_client))
+        results = await query_vector_db(query_text, collection_name, top_k, chroma_client)
         
         # Format the response
         formatted_results = {
@@ -271,11 +271,11 @@ def query():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @rag_routes.route('/api/generate-answer', methods=['POST'])
-def generate():
+async def generate():
     """Generate an answer based on context and history API endpoint with performance optimizations."""
     try:
         start_time = datetime.now()
-        data = request.get_json()
+        data = await request.get_json()
         
         # Validate input
         if not data or 'query' not in data or 'collection_name' not in data:
@@ -308,16 +308,16 @@ def generate():
         try:
             # Query the vector database with timeout
             vector_start = datetime.now()
-            relevant_docs = run_async(asyncio.wait_for(
+            relevant_docs = await asyncio.wait_for(
                 query_vector_db(query_text, collection_name, top_k, chroma_client), 
                 timeout=15.0
-            ))
+            )
             vector_time = (datetime.now() - vector_start).total_seconds()
             performance_info['vector_search_time'] = vector_time
             
             # Generate answer with timeout
             answer_start = datetime.now()
-            answer = run_async(asyncio.wait_for(
+            answer = await asyncio.wait_for(
                 generate_answer(
                     query_text, 
                     relevant_docs, 
@@ -326,7 +326,7 @@ def generate():
                     tone
                 ),
                 timeout=25.0
-            ))
+            )
             answer_time = (datetime.now() - answer_start).total_seconds()
             performance_info['answer_generation_time'] = answer_time
             
@@ -381,7 +381,7 @@ def list_collections():
 
 # HackRX specific endpoint
 @rag_routes.route('/hackrx/run', methods=['POST'])
-def hackrx_run():
+async def hackrx_run():
     """HackRX API endpoint for processing documents and answering questions using RAG."""
     try:
         # Check for API key authentication
@@ -393,7 +393,7 @@ def hackrx_run():
         # TODO: Validate API key against your authentication system
         
         # Parse request data
-        data = request.get_json()
+        data = await request.get_json()
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
         
@@ -444,7 +444,7 @@ def hackrx_run():
         # Step 1: Upload and process document (create embeddings)
         try:
             # Process and store document in ChromaDB
-            result = run_async(process_and_store_document(file_obj, collection_name, chroma_client))
+            result = await process_and_store_document(file_obj, collection_name, chroma_client)
             if result.get('status') != 'success':
                 return jsonify({"error": f"Failed to process document: {result.get('message', 'Unknown error')}"}), 500
             
@@ -458,11 +458,11 @@ def hackrx_run():
         for question in questions:
             try:
                 # Query the vector database for relevant documents
-                relevant_docs = run_async(query_vector_db(question, collection_name, top_k=5, chroma_client=chroma_client))
+                relevant_docs = await query_vector_db(question, collection_name, top_k=5, chroma_client=chroma_client)
                 
                 # Generate answer using RAG
                 conversation_history = []  # Start fresh for each question
-                answer = run_async(generate_answer(question, relevant_docs, conversation_history))
+                answer = await generate_answer(question, relevant_docs, conversation_history)
                 
                 # Clean the answer (remove markdown formatting)
                 from app.services.openai_services import clean_markdown_formatting
@@ -534,10 +534,10 @@ def clear_cache():
 
 # Test endpoint for debugging
 @rag_routes.route('/hackrx/test', methods=['POST'])
-def hackrx_test():
+async def hackrx_test():
     """Test endpoint for debugging document download."""
     try:
-        data = request.get_json()
+        data = await request.get_json()
         documents_url = data.get('documents')
         
         # Download the PDF from the URL
@@ -581,10 +581,10 @@ def hackrx_test():
 
 # Test endpoint for processing
 @rag_routes.route('/hackrx/test-process', methods=['POST'])
-def hackrx_test_process():
+async def hackrx_test_process():
     """Test endpoint for debugging document processing."""
     try:
-        data = request.get_json()
+        data = await request.get_json()
         documents_url = data.get('documents')
         
         # Download the PDF from the URL

@@ -1,10 +1,10 @@
-from flask import Flask
-from flask_cors import CORS
+from quart import Quart
+from quart_cors import cors
 from app.routes.rag_routes import rag_routes
 
 def create_app():
-    app = Flask(__name__)
-    CORS(app)
+    app = Quart(__name__)
+    app = cors(app)
     
     # Register blueprints
     app.register_blueprint(rag_routes)
