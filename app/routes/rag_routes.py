@@ -382,7 +382,7 @@ def list_collections():
 # HackRX specific endpoint
 @rag_routes.route('/hackrx/run', methods=['POST'])
 def hackrx_run():
-    """HackRX API endpoint for processing documents and answering questions."""
+    """HackRX API endpoint for processing documents and answering questions using RAG."""
     try:
         # Check for API key authentication
         auth_header = request.headers.get('Authorization')
@@ -441,39 +441,35 @@ def hackrx_run():
         
         file_obj = FileWrapper(response.content, "document.pdf")
         
-        # For now, return a simple response since Azure OpenAI credentials are not configured
-        # In production, you would process the document and generate answers using RAG
+        # Step 1: Upload and process document (create embeddings)
+        try:
+            # Process and store document in ChromaDB
+            result = run_async(process_and_store_document(file_obj, collection_name))
+            if result.get('status') != 'success':
+                return jsonify({"error": f"Failed to process document: {result.get('message', 'Unknown error')}"}), 500
+            
+            logger.info(f"Document processed successfully: {result.get('chunks_added', 0)} chunks added")
+        except Exception as e:
+            logger.error(f"Error processing document: {str(e)}")
+            return jsonify({"error": f"Failed to process document: {str(e)}"}), 500
         
-        # Extract text for basic processing
-        text = extract_text_from_file(file_obj)
-        
-        # Generate simple answers based on text content
+        # Step 2: Generate answers for each question using RAG
         answers = []
         for question in questions:
             try:
-                # Simple keyword-based answer (replace with proper RAG in production)
-                if "grace period" in question.lower():
-                    answers.append("A grace period of thirty days is provided for premium payment after the due date to renew or continue the policy without losing continuity benefits.")
-                elif "waiting period" in question.lower() and "pre-existing" in question.lower():
-                    answers.append("There is a waiting period of thirty-six (36) months of continuous coverage from the first policy inception for pre-existing diseases and their direct complications to be covered.")
-                elif "maternity" in question.lower():
-                    answers.append("Yes, the policy covers maternity expenses, including childbirth and lawful medical termination of pregnancy. To be eligible, the female insured person must have been continuously covered for at least 24 months.")
-                elif "cataract" in question.lower():
-                    answers.append("The policy has a specific waiting period of two (2) years for cataract surgery.")
-                elif "organ donor" in question.lower():
-                    answers.append("Yes, the policy indemnifies the medical expenses for the organ donor's hospitalization for the purpose of harvesting the organ, provided the organ is for an insured person.")
-                elif "no claim discount" in question.lower() or "ncd" in question.lower():
-                    answers.append("A No Claim Discount of 5% on the base premium is offered on renewal for a one-year policy term if no claims were made in the preceding year.")
-                elif "health check" in question.lower():
-                    answers.append("Yes, the policy reimburses expenses for health check-ups at the end of every block of two continuous policy years, provided the policy has been renewed without a break.")
-                elif "hospital" in question.lower():
-                    answers.append("A hospital is defined as an institution with at least 10 inpatient beds (in towns with a population below ten lakhs) or 15 beds (in all other places), with qualified nursing staff and medical practitioners available 24/7.")
-                elif "ayush" in question.lower():
-                    answers.append("The policy covers medical expenses for inpatient treatment under Ayurveda, Yoga, Naturopathy, Unani, Siddha, and Homeopathy systems up to the Sum Insured limit.")
-                elif "room rent" in question.lower() or "icu" in question.lower():
-                    answers.append("For Plan A, the daily room rent is capped at 1% of the Sum Insured, and ICU charges are capped at 2% of the Sum Insured.")
-                else:
-                    answers.append("Based on the policy document, this information is covered under the National Parivar Mediclaim Plus Policy. Please refer to the specific policy terms for detailed information.")
+                # Query the vector database for relevant documents
+                relevant_docs = run_async(query_vector_db(question, collection_name, top_k=5))
+                
+                # Generate answer using RAG
+                conversation_history = []  # Start fresh for each question
+                answer = run_async(generate_answer(question, relevant_docs, conversation_history))
+                
+                # Clean the answer (remove markdown formatting)
+                from app.services.openai_services import clean_markdown_formatting
+                clean_answer = clean_markdown_formatting(answer)
+                
+                answers.append(clean_answer)
+                
             except Exception as e:
                 logger.error(f"Error generating answer for question '{question}': {str(e)}")
                 answers.append(f"Error processing question: {str(e)}")
