@@ -312,22 +312,8 @@ async def process_and_store_document(file, collection_name, chroma_client):
             collection = chroma_client.create_collection(collection_name)
             logger.info(f"Created new collection: {collection_name}")
 
-        # Check if document already exists (by filename) - more aggressive check
-        try:
-            existing_docs = collection.get(where={"filename": file.filename})
-            if existing_docs and existing_docs['ids']:
-                logger.info(f"Document {file.filename} already exists in collection, skipping processing")
-                return {
-                    "status": "success",
-                    "file_id": existing_docs['metadatas'][0]['file_id'] if existing_docs['metadatas'] else "unknown",
-                    "chunks_added": 0,
-                    "message": "Document already processed",
-                    "processing_time": 0.1,
-                    "embedding_time": 0.0,
-                    "storage_time": 0.0
-                }
-        except Exception as e:
-            logger.warning(f"Error checking existing document: {e}")
+        # Always process the document (no existence check)
+        logger.info(f"Processing document: {file.filename}")
 
         # Generate unique file ID for later deletion
         file_id = str(uuid.uuid4())

@@ -1,109 +1,95 @@
 # Advanced Production-Ready RAG System
 
-A sophisticated Flask-based RAG (Retrieval-Augmented Generation) system with ChromaDB vector storage, Azure OpenAI integration, and multi-user support.
+A sophisticated Flask-based RAG (Retrieval-Augmented Generation) system with ChromaDB vector storage, Azure OpenAI integration, and multi-user support. This system is designed for enterprise-grade document processing and intelligent question answering.
 
-## 🚀 Quick Deploy
+## 🚀 Quick Start
 
+### Deploy to Google Cloud Run
+```bash
+# Build and deploy to Google Cloud Run
+gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/rag
+gcloud run deploy rag --image gcr.io/YOUR_PROJECT_ID/rag --platform managed --region us-central1 --allow-unauthenticated --port 8080
+```
+
+### Deploy to Render
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 
-**Or manually deploy to Render:**
-1. Fork this repository
-2. Connect to [Render](https://render.com)
-3. Create new Web Service
-4. Select your forked repository
-5. Use build command: `pip install -r requirements.txt`
-6. Use start command: `gunicorn run:app`
-7. Add environment variables (see deployment guide)
+### Local Development
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd RAG
 
-## 🚀 Features
+# Install dependencies
+pip install -r requirements.txt
 
-- **Asynchronous Processing**: High-performance async operations
-- **ChromaDB Vector Storage**: Persistent vector database with optimized settings
-- **Azure OpenAI Integration**: Enterprise-grade AI with fallback mechanisms
-- **Multi-User Support**: Conversation history and session management
-- **Advanced Caching**: Smart cache with TTL, LRU eviction, and specialized caches
-- **Multiple File Formats**: PDF, TXT, DOCX with robust text extraction
-- **Collection Management**: Organize documents into collections
-- **Performance Monitoring**: Built-in timing and performance metrics
-- **Error Handling**: Comprehensive retry logic and error recovery
-- **Production Ready**: Logging, timeouts, and scalability features
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your Azure OpenAI credentials
+
+# Run the application
+python run.py
+```
+
+## 🎯 Features
+
+### Core Capabilities
+- **📄 Multi-Format Document Processing**: PDF, TXT, DOCX with robust text extraction
+- **🧠 Intelligent Vector Search**: ChromaDB-powered similarity search with optimized embeddings
+- **🤖 Azure OpenAI Integration**: Enterprise-grade AI with GPT-4 and text-embedding-3-small
+- **💬 Multi-Turn Conversations**: Context-aware dialogue with conversation history
+- **⚡ High Performance**: Async processing with smart caching and timeout handling
+- **🔒 Production Ready**: Comprehensive error handling, logging, and security features
+
+### Advanced Features
+- **📊 Smart Caching System**: Multi-level caching with TTL and LRU eviction
+- **🔄 Retry Logic**: Exponential backoff with tenacity for reliability
+- **📈 Performance Monitoring**: Built-in timing and metrics collection
+- **👥 Multi-User Support**: Session management and conversation isolation
+- **🗂️ Collection Management**: Organize documents into logical collections
+- **🎨 Customizable Responses**: Tone, style, and organization-specific formatting
 
 ## 🏗️ Architecture
 
-### Core Components
-- **Flask**: Web framework with CORS support
-- **ChromaDB**: Vector database for similarity search
-- **Azure OpenAI**: Embeddings and chat completions
-- **Smart Caching**: Multi-level caching system
-- **Async Processing**: Non-blocking operations
-
-### Advanced Features
-- **Retry Logic**: Exponential backoff with tenacity
-- **Timeout Handling**: Graceful fallbacks for slow operations
-- **Memory Management**: LRU cache eviction and TTL
-- **Batch Processing**: Efficient embedding generation
-- **Conversation History**: Multi-turn dialogue support
-
-## 📋 API Endpoints
-
-### HackRX API (Production Ready)
-
-#### Process Documents and Answer Questions
-```http
-POST /hackrx/run
-Content-Type: application/json
-Authorization: Bearer your-api-key
-
-{
-  "documents": "https://example.com/document.pdf",
-  "questions": [
-    "What is the grace period for premium payment?",
-    "What is the waiting period for pre-existing diseases?"
-  ]
-}
+### System Components
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Web Client    │    │   Flask App     │    │   ChromaDB      │
+│   (Postman/UI)  │◄──►│   (Quart)       │◄──►│   Vector Store  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌─────────────────┐
+                       │  Azure OpenAI   │
+                       │   (Embeddings   │
+                       │   & Chat)       │
+                       └─────────────────┘
 ```
 
-**Response:**
-```json
-{
-  "answers": [
-    "A grace period of thirty days is provided...",
-    "There is a waiting period of thirty-six months..."
-  ]
-}
-```
+### Technology Stack
+- **Web Framework**: Quart (async Flask)
+- **Vector Database**: ChromaDB
+- **AI Provider**: Azure OpenAI
+- **HTTP Client**: httpx (async) with aiohttp fallback
+- **Document Processing**: pypdf, python-docx, docx2txt
+- **Caching**: Custom SmartCache with TTL and LRU
+- **Deployment**: Docker, Google Cloud Run, Render
 
-#### Cache Management
-```http
-GET /hackrx/cache/status
-POST /hackrx/cache/clear
-```
+## 📋 API Reference
 
 ### Health Check
 ```http
 GET /health
 ```
 
-## 🚀 Deployment
-
-### Render Deployment
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
-
-### Environment Variables
-```bash
-CHROMA_DB_PATH=/opt/render/project/src/chroma_db
-FLASK_ENV=production
-AZURE_OPENAI_API_KEY=your_azure_openai_key
-AZURE_OPENAI_ENDPOINT=your_azure_openai_endpoint
+**Response:**
+```json
+{
+  "status": "healthy",
+  "message": "RAG system is running",
+  "timestamp": "2025-07-30T17:14:15+00:00"
+}
 ```
-
-### Local Development
-```bash
-pip install -r requirements.txt
-python run.py
-```
-
-## 📋 API Endpoints
 
 ### Document Management
 
@@ -112,20 +98,22 @@ python run.py
 POST /api/upload
 Content-Type: multipart/form-data
 
-files: [file1, file2, ...]
+files: [file1.pdf, file2.docx, ...]
 collection_name: "my_collection"
 ```
 
 **Response:**
 ```json
 {
+  "status": "success",
   "collection": "my_collection",
   "results": [
     {
       "filename": "document.pdf",
       "status": "success",
-      "file_id": "uuid",
-      "chunks_added": 15
+      "file_id": "uuid-1234",
+      "chunks_added": 15,
+      "processing_time": 2.3
     }
   ]
 }
@@ -187,36 +175,85 @@ Content-Type: application/json
 ```json
 {
   "status": "success",
-  "answer": "Based on the documents...",
-  "conversation_id": "uuid",
+  "answer": "Based on the documents in your collection...",
+  "conversation_id": "uuid-5678",
   "performance": {
     "vector_search_time": 0.5,
     "answer_generation_time": 2.1,
     "total_time": 2.6
-  }
+  },
+  "sources": [
+    {
+      "document": "document.pdf",
+      "chunk": "Machine learning is a subset...",
+      "similarity_score": 0.95
+    }
+  ]
 }
 ```
 
-## 🛠️ Setup
+### HackRX API (Production Endpoint)
 
-### 1. Install Dependencies
+#### Process Documents and Answer Questions
+```http
+POST /hackrx/run
+Content-Type: application/json
+Authorization: Bearer your-api-key
+
+{
+  "documents": "https://example.com/document.pdf",
+  "questions": [
+    "What is the grace period for premium payment?",
+    "What is the waiting period for pre-existing diseases?"
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "answers": [
+    "A grace period of thirty days is provided for premium payments...",
+    "There is a waiting period of thirty-six months for pre-existing conditions..."
+  ],
+  "processing_time": 7.73,
+  "documents_processed": 1,
+  "questions_processed": 2
+}
+```
+
+#### Cache Management
+```http
+GET /hackrx/cache/status
+POST /hackrx/cache/clear
+```
+
+## 🛠️ Setup Instructions
+
+### 1. Prerequisites
+- Python 3.11+
+- Azure OpenAI account with API key
+- Docker (for containerized deployment)
+
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Environment Variables
+### 3. Environment Configuration
 
 Create a `.env` file:
 
 ```env
 # Azure OpenAI Configuration
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key
-AZURE_OPENAI_ENDPOINT=your-azure-endpoint
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_DEPLOYMENT_COMPLETION=gpt-4o-mini
-AZURE_DEPLOYMENT_EMBEDDING=text-embedding-ada-002
+AZURE_DEPLOYMENT_EMBEDDING=text-embedding-3-small
 
 # Application Configuration
-SECRET_KEY=your-secret-key
+SECRET_KEY=your-secret-key-here
 FLASK_ENV=development
 CHROMA_DB_PATH=./chroma_db
 UPLOAD_FOLDER=./uploads
@@ -225,27 +262,49 @@ UPLOAD_FOLDER=./uploads
 ORG_NAME=Your Organization
 ORG_DESCRIPTION=A leading provider of innovative solutions
 DEFAULT_TONE=professional
+
+# Performance Settings
+CHUNK_SIZE=512
+CHUNK_OVERLAP=50
+MAX_TOKENS=4000
+SIMILARITY_TOP_K=5
+TEMPERATURE=0.1
 ```
 
-### 3. Run the Application
+### 4. Run the Application
+
+#### Local Development
 ```bash
 python run.py
 ```
+Server starts on `http://localhost:8080`
 
-The server will start on `http://localhost:5001`
-
-### 4. Test the Server
+#### Docker
 ```bash
-curl http://localhost:5001/health
+# Build the image
+docker build -t rag .
+
+# Run the container
+docker run -p 8080:8080 rag
 ```
 
-**Expected Response:**
-```json
-{
-  "status": "healthy",
-  "message": "RAG system is running",
-  "timestamp": "2025-07-29T12:31:57.232360"
-}
+#### Google Cloud Run
+```bash
+# Build and push to Google Container Registry
+gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/rag
+
+# Deploy to Cloud Run
+gcloud run deploy rag \
+  --image gcr.io/YOUR_PROJECT_ID/rag \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 8080
+```
+
+### 5. Test the Installation
+```bash
+curl http://localhost:8080/health
 ```
 
 ## 📊 Performance Features
@@ -284,33 +343,72 @@ query_result_cache = SmartCache(max_size=500, ttl=3600)
 llm_response_cache = SmartCache(max_size=300, ttl=1800)
 ```
 
-## 📁 File Structure
+## 📁 Project Structure
 
 ```
-├── run.py                 # Main application
-├── config.py              # Configuration
-├── requirements.txt        # Dependencies
-├── README.md              # Documentation
+RAG/
+├── run.py                 # Main application entry point
+├── config.py              # Configuration settings
+├── requirements.txt        # Python dependencies
+├── Dockerfile             # Container configuration
+├── .dockerignore          # Docker ignore patterns
+├── .gcloudignore          # Google Cloud ignore patterns
+├── cloudbuild.yaml        # Google Cloud Build config
+├── README.md              # This documentation
+├── DEPLOYMENT.md          # Deployment guide
 ├── app/
-│   └── __init__.py        # Flask app factory
+│   ├── __init__.py        # Flask app factory
+│   ├── routes/
+│   │   └── rag_routes.py  # API endpoints
+│   └── services/
+│       ├── openai_services.py  # Azure OpenAI integration
+│       └── utils.py       # Utility functions
 ├── chroma_db/             # Vector database storage
+├── storage/               # File storage
+├── embeddings/            # Embedding cache
 ├── uploads/               # File uploads
 └── rag_system.log         # Application logs
 ```
 
-## 🚀 Production Deployment
+## 🚀 Deployment Options
 
-### Using Gunicorn
+### Google Cloud Run (Recommended)
 ```bash
-pip install gunicorn
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker run:app
+# Build and deploy
+gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/rag
+gcloud run deploy rag --image gcr.io/YOUR_PROJECT_ID/rag --platform managed --region us-central1 --allow-unauthenticated --port 8080
 ```
 
-### Environment Variables for Production
-```env
-FLASK_ENV=production
-CHROMA_DB_PATH=/var/lib/rag/chroma_db
-UPLOAD_FOLDER=/var/lib/rag/uploads
+### Render
+1. Fork this repository
+2. Connect to [Render](https://render.com)
+3. Create new Web Service
+4. Select your forked repository
+5. Use build command: `pip install -r requirements.txt`
+6. Use start command: `gunicorn run:app`
+7. Add environment variables
+
+### Docker
+```bash
+# Build image
+docker build -t rag .
+
+# Run container
+docker run -p 8080:8080 rag
+
+# With environment variables
+docker run -p 8080:8080 -e AZURE_OPENAI_API_KEY=your-key rag
+```
+
+### Local Production
+```bash
+# Using Gunicorn
+pip install gunicorn
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker run:app
+
+# Using Hypercorn
+pip install hypercorn
+hypercorn run:app --bind 0.0.0.0:8080
 ```
 
 ## 🔍 Monitoring and Logging
@@ -326,9 +424,16 @@ UPLOAD_FOLDER=/var/lib/rag/uploads
   "performance": {
     "vector_search_time": 0.5,
     "answer_generation_time": 2.1,
-    "total_time": 2.6
+    "total_time": 2.6,
+    "cache_hits": 3,
+    "cache_misses": 1
   }
 }
+```
+
+### Health Check Endpoints
+```http
+GET /health
 ```
 
 ## 🛡️ Error Handling
@@ -342,6 +447,12 @@ UPLOAD_FOLDER=/var/lib/rag/uploads
 - **Vector Search**: 15-second timeout
 - **Answer Generation**: 25-second timeout
 - **Graceful Fallbacks**: Sync client if async fails
+
+### Common Error Codes
+- `400`: Bad Request (invalid input)
+- `404`: Not Found (collection/file not found)
+- `500`: Internal Server Error (processing error)
+- `503`: Service Unavailable (timeout/rate limit)
 
 ## 📈 Scalability Features
 
@@ -367,4 +478,114 @@ UPLOAD_FOLDER=/var/lib/rag/uploads
 - **Error Sanitization**: Safe error messages
 - **CORS Support**: Cross-origin requests
 
-This advanced RAG system provides enterprise-grade performance, reliability, and scalability for production deployments. 
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### 1. UnicodeDecodeError during gcloud builds submit
+**Problem**: Binary files causing encoding issues
+**Solution**: Use `.gcloudignore` file to exclude binary files
+
+#### 2. Connection refused in Postman
+**Problem**: Port mapping mismatch
+**Solution**: 
+```bash
+# Use correct port mapping
+docker run -p 8080:8080 rag
+# Then access via http://localhost:8080
+```
+
+#### 3. Azure OpenAI API errors
+**Problem**: Invalid credentials or endpoint
+**Solution**: Verify environment variables:
+```bash
+echo $AZURE_OPENAI_API_KEY
+echo $AZURE_OPENAI_ENDPOINT
+```
+
+#### 4. ChromaDB initialization errors
+**Problem**: Permission issues with database directory
+**Solution**: Ensure write permissions:
+```bash
+chmod 755 chroma_db/
+```
+
+### Debug Mode
+```bash
+# Enable debug logging
+export FLASK_ENV=development
+python run.py
+```
+
+### Performance Tuning
+```python
+# Adjust cache sizes for your use case
+embedding_cache = SmartCache(max_size=5000, ttl=24*3600)
+query_result_cache = SmartCache(max_size=1000, ttl=3600)
+
+# Adjust chunking parameters
+CHUNK_SIZE = 1024  # Larger chunks for better context
+CHUNK_OVERLAP = 100  # More overlap for better continuity
+```
+
+## 📚 Examples
+
+### Python Client Example
+```python
+import requests
+import json
+
+# Upload a document
+files = {'files': open('document.pdf', 'rb')}
+data = {'collection_name': 'my_collection'}
+response = requests.post('http://localhost:8080/api/upload', files=files, data=data)
+print(response.json())
+
+# Ask a question
+query_data = {
+    'query': 'What is the main topic?',
+    'collection_name': 'my_collection'
+}
+response = requests.post('http://localhost:8080/api/generate-answer', json=query_data)
+print(response.json())
+```
+
+### cURL Examples
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Upload document
+curl -X POST http://localhost:8080/api/upload \
+  -F "files=@document.pdf" \
+  -F "collection_name=my_collection"
+
+# Generate answer
+curl -X POST http://localhost:8080/api/generate-answer \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is this about?", "collection_name": "my_collection"}'
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For issues and questions:
+1. Check the troubleshooting section
+2. Review the logs in `rag_system.log`
+3. Open an issue on GitHub
+4. Contact the development team
+
+---
+
+**Built with ❤️ for enterprise-grade RAG applications** 
