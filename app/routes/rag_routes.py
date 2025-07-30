@@ -444,7 +444,7 @@ def hackrx_run():
         # Step 1: Upload and process document (create embeddings)
         try:
             # Process and store document in ChromaDB
-            result = run_async(process_and_store_document(file_obj, collection_name))
+            result = run_async(process_and_store_document(file_obj, collection_name, chroma_client))
             if result.get('status') != 'success':
                 return jsonify({"error": f"Failed to process document: {result.get('message', 'Unknown error')}"}), 500
             
@@ -458,7 +458,7 @@ def hackrx_run():
         for question in questions:
             try:
                 # Query the vector database for relevant documents
-                relevant_docs = run_async(query_vector_db(question, collection_name, top_k=5))
+                relevant_docs = run_async(query_vector_db(question, collection_name, top_k=5, chroma_client=chroma_client))
                 
                 # Generate answer using RAG
                 conversation_history = []  # Start fresh for each question
