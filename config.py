@@ -17,11 +17,22 @@ class Config:
     CHROMA_DB_PATH = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
     
     # RAG Configuration
-    CHUNK_SIZE = 512
-    CHUNK_OVERLAP = 50
+    CHUNK_SIZE = 2048  # Much larger chunks for fewer API calls
+    CHUNK_OVERLAP = 200  # Increased overlap for larger chunks
     MAX_TOKENS = 4000
     SIMILARITY_TOP_K = 5
     TEMPERATURE = 0.1
+    
+    # Performance Optimizations
+    BATCH_SIZE_EMBEDDINGS = 20  # Reduced to avoid rate limits
+    TOP_K_REDUCED = 3  # Reduced from 5
+    MAX_TOKENS_REDUCED = 1000  # Reduced from 4000
+    TIMEOUT_VECTOR_SEARCH = 10.0  # Reduced from 15.0
+    TIMEOUT_ANSWER_GENERATION = 15.0  # Reduced from 25.0
+    TIMEOUT_EMBEDDING_GENERATION = 5.0  # Reduced timeout for embeddings
+    CONTEXT_LIMIT = 500  # Limit context length per document
+    MAX_PARALLEL_QUESTS = 10  # Limit parallel processing
+    MAX_CHUNKS_PER_DOCUMENT = 50  # Limit chunks to avoid rate limits
     
     # File Upload Configuration
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "./uploads")

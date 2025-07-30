@@ -26,6 +26,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 import chromadb
 from chromadb.config import Settings
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -229,9 +233,77 @@ async def get_embeddings(texts: List[str]):
         logger.error(f"Error getting embeddings: {str(e)}")
         raise
 
+# Optimized embedding function with rate limit handling
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=6))
+async def get_embeddings_optimized(texts: List[str]):
+    """Optimized embedding generation with rate limit handling."""
+    if not async_client:
+        raise Exception("Azure OpenAI client not initialized.")
+    
+    try:
+        # Check cache first
+        embeddings = []
+        texts_to_embed = []
+        indices = []
+        
+        for i, text in enumerate(texts):
+            cached_embedding = embedding_cache.get(text)
+            if cached_embedding is not None:
+                embeddings.append(cached_embedding)
+            else:
+                texts_to_embed.append(text)
+                indices.append(i)
+        
+        # If we have texts that need embedding
+        if texts_to_embed:
+            # Use smaller batch size to avoid rate limits
+            batch_size = 20  # Reduced from 100 to avoid rate limits
+            all_new_embeddings = []
+            
+            for i in range(0, len(texts_to_embed), batch_size):
+                batch = texts_to_embed[i:i+batch_size]
+                
+                try:
+                    response = await async_client.embeddings.create(
+                        input=batch,
+                        model=os.environ.get("AZURE_DEPLOYMENT_EMBEDDING", "text-embedding-ada-002"),
+                        timeout=5.0  # Reduced timeout for faster processing
+                    )
+                    batch_embeddings = [item.embedding for item in response.data]
+                    all_new_embeddings.extend(batch_embeddings)
+                    
+                    # Cache each embedding immediately
+                    for j, text in enumerate(batch):
+                        embedding_cache.set(text, batch_embeddings[j])
+                    
+                    # Add small delay between batches to avoid rate limits
+                    if i + batch_size < len(texts_to_embed):
+                        await asyncio.sleep(0.1)  # 100ms delay between batches
+                        
+                except Exception as e:
+                    logger.error(f"Embedding batch failed: {str(e)}")
+                    # Return zeros for failed embeddings to continue processing
+                    batch_embeddings = [[0.0] * 1536] * len(batch)
+                    all_new_embeddings.extend(batch_embeddings)
+            
+            # Insert new embeddings at the correct positions
+            for idx, embed in zip(indices, all_new_embeddings):
+                if idx >= len(embeddings):
+                    embeddings.append(embed)
+                else:
+                    embeddings.insert(idx, embed)
+        
+        return embeddings
+    except Exception as e:
+        logger.error(f"Error getting embeddings: {str(e)}")
+        raise
+
 async def process_and_store_document(file, collection_name, chroma_client):
     """Process a file and append to existing/new collection"""
     try:
+        import time
+        start_time = time.time()
+        
         # Get or create collection
         try:
             collection = chroma_client.get_collection(collection_name)
@@ -239,6 +311,23 @@ async def process_and_store_document(file, collection_name, chroma_client):
         except:
             collection = chroma_client.create_collection(collection_name)
             logger.info(f"Created new collection: {collection_name}")
+
+        # Check if document already exists (by filename) - more aggressive check
+        try:
+            existing_docs = collection.get(where={"filename": file.filename})
+            if existing_docs and existing_docs['ids']:
+                logger.info(f"Document {file.filename} already exists in collection, skipping processing")
+                return {
+                    "status": "success",
+                    "file_id": existing_docs['metadatas'][0]['file_id'] if existing_docs['metadatas'] else "unknown",
+                    "chunks_added": 0,
+                    "message": "Document already processed",
+                    "processing_time": 0.1,
+                    "embedding_time": 0.0,
+                    "storage_time": 0.0
+                }
+        except Exception as e:
+            logger.warning(f"Error checking existing document: {e}")
 
         # Generate unique file ID for later deletion
         file_id = str(uuid.uuid4())
@@ -248,6 +337,13 @@ async def process_and_store_document(file, collection_name, chroma_client):
         text = extract_text_from_file(file)
         chunks = chunk_text(text)
         
+        logger.info(f"Processing {len(chunks)} chunks for document {file.filename}")
+        
+        # If too many chunks, truncate to avoid rate limits
+        if len(chunks) > 50:  # Limit to 50 chunks maximum
+            logger.warning(f"Too many chunks ({len(chunks)}), truncating to 50")
+            chunks = chunks[:50]
+        
         # Prepare metadata with file tracking
         chunk_metadata = [{
             "file_id": file_id,
@@ -256,21 +352,32 @@ async def process_and_store_document(file, collection_name, chroma_client):
             "chunk_index": i
         } for i in range(len(chunks))]
         
-        # Generate embeddings
-        embeddings = await get_embeddings(chunks)
+        # Generate embeddings using optimized function with rate limit handling
+        embedding_start = time.time()
+        embeddings = await get_embeddings_optimized(chunks)
+        embedding_time = time.time() - embedding_start
+        logger.info(f"Embedding generation took {embedding_time:.2f}s for {len(chunks)} chunks")
         
         # Store with file-scoped IDs (file_id + chunk_index)
+        storage_start = time.time()
         collection.add(
             ids=[f"{file_id}_{i}" for i in range(len(chunks))],
             embeddings=embeddings,
             documents=chunks,
             metadatas=chunk_metadata
         )
+        storage_time = time.time() - storage_start
+        total_time = time.time() - start_time
+        
+        logger.info(f"Storage took {storage_time:.2f}s, Total processing time: {total_time:.2f}s")
         
         return {
             "status": "success",
             "file_id": file_id,
-            "chunks_added": len(chunks)
+            "chunks_added": len(chunks),
+            "processing_time": round(total_time, 2),
+            "embedding_time": round(embedding_time, 2),
+            "storage_time": round(storage_time, 2)
         }
         
     except Exception as e:
@@ -294,6 +401,36 @@ async def query_vector_db(query, collection_name, top_k=5, chroma_client=None):
         query_embedding = await get_embeddings([query])
         
         # Query the collection
+        collection = chroma_client.get_collection(name=collection_name)
+        results = collection.query(
+            query_embeddings=query_embedding,
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"]
+        )
+        
+        # Cache the results
+        query_result_cache.set(cache_key, results)
+        
+        return results
+    except Exception as e:
+        logger.error(f"Error querying vector database: {str(e)}")
+        raise
+
+# Fast vector search with reduced results
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def query_vector_db_fast(query, collection_name, top_k=3, chroma_client=None):  # Reduced from 5
+    """Fast vector database query with reduced results."""
+    try:
+        cache_key = f"{query}:{collection_name}:{top_k}"
+        cached_result = query_result_cache.get(cache_key)
+        
+        if cached_result is not None:
+            return cached_result
+        
+        # Get embedding for query
+        query_embedding = await get_embeddings_optimized([query])
+        
+        # Query the collection with reduced results
         collection = chroma_client.get_collection(name=collection_name)
         results = collection.query(
             query_embeddings=query_embedding,
@@ -453,3 +590,69 @@ async def generate_answer(query, relevant_docs, conversation_history, org_info=N
     except Exception as e:
         logger.error(f"Error generating answer: {str(e)}")
         raise 
+
+# Fast answer generation with reduced context and faster processing
+async def generate_answer_fast(query, relevant_docs, conversation_history=None, org_info=None, tone=None):
+    """Fast answer generation with reduced context and faster processing."""
+    if not async_client:
+        raise Exception("Azure OpenAI client not initialized.")
+    
+    try:
+        # Simplified cache key
+        cache_key = f"{query}:{len(relevant_docs.get('documents', [[]])[0])}"
+        cached_answer = llm_response_cache.get(cache_key)
+        
+        if cached_answer is not None:
+            return cached_answer
+        
+        # Simplified prompt construction
+        context_parts = []
+        for i, doc in enumerate(relevant_docs['documents'][0][:3]):  # Only top 3 docs
+            context_parts.append(f"Context {i+1}: {doc[:500]}...")  # Limit context length
+        
+        context_text = "\n".join(context_parts)
+        
+        # Simplified system prompt
+        system_prompt = f"""Answer the question based on the provided context. Be concise and factual.
+
+Context:
+{context_text}
+
+Question: {query}
+
+Answer:"""
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": query}
+        ]
+        
+        try:
+            response = await async_client.chat.completions.create(
+                model=os.environ.get("AZURE_DEPLOYMENT_COMPLETION", "gpt-4o-mini"),
+                messages=messages,
+                temperature=0.1,
+                max_tokens=1000,  # Reduced from 4000
+                timeout=10.0  # Reduced timeout
+            )
+            answer = response.choices[0].message.content
+        except asyncio.TimeoutError:
+            # Fallback with sync client
+            response = sync_client.chat.completions.create(
+                model=os.environ.get("AZURE_DEPLOYMENT_COMPLETION", "gpt-4o-mini"),
+                messages=messages,
+                temperature=0.1,
+                max_tokens=1000,
+                timeout=10.0
+            )
+            answer = response.choices[0].message.content
+        
+        # Clean and cache
+        answer = clean_markdown_formatting(answer)
+        llm_response_cache.set(cache_key, answer)
+        
+        return answer
+        
+    except Exception as e:
+        logger.error(f"Error generating answer: {str(e)}")
+        return f"Error generating answer: {str(e)}" 

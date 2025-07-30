@@ -81,7 +81,7 @@ def extract_text_from_file(file):
         logger.error(f"Error extracting text from {file_name}: {str(e)}")
         raise
 
-def chunk_text(text, chunk_size=512, chunk_overlap=50):
+def chunk_text(text, chunk_size=2048, chunk_overlap=200):  # Much larger chunks
     """Split text into overlapping chunks of specified size."""
     if not text:
         return []

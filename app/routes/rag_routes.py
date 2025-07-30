@@ -39,7 +39,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 # Import services
 from app.services.openai_services import (
     get_embeddings, process_and_store_document, 
-    query_vector_db, generate_answer, SmartCache
+    query_vector_db, generate_answer, SmartCache,
+    get_embeddings_optimized, query_vector_db_fast, generate_answer_fast
 )
 from app.services.utils import (
     clean_text, extract_text_from_file, chunk_text
@@ -136,13 +137,14 @@ def health_check():
 @rag_routes.route('/api/upload', methods=['POST'])
 async def upload_files():
     """Handle multi-file upload to a specified collection"""
-    if 'files' not in request.files:
+    request_files = await request.files
+    if 'files' not in request_files:
         return jsonify({"error": "No files provided"}), 400
     
-    collection_name = request.form.get("collection_name", "default_collection")
+    collection_name = (await request.form).get("collection_name", "default_collection")
     results = []
     
-    for file in request.files.getlist('files'):
+    for file in request_files.getlist('files'):
         if file.filename == '':
             continue
             
@@ -166,24 +168,27 @@ def delete_file(collection_name, file_id):
         
         # First check if this is the last file
         all_files = collection.get(include=["metadatas"])
-        unique_file_ids = {meta['file_id'] for meta in all_files['metadatas']}
-        
-        if len(unique_file_ids) == 1 and file_id in unique_file_ids:
-            return jsonify({
-                "error": "Cannot delete the last file in collection",
-                "suggestion": "Delete the entire collection instead"
-            }), 400
-        
-        # Proceed with deletion if not the last file
-        results = collection.get(where={"file_id": file_id})
-        if not results['ids']:
-            return jsonify({"error": "File not found"}), 404
+        if all_files and 'metadatas' in all_files and all_files['metadatas']:
+            unique_file_ids = {meta['file_id'] for meta in all_files['metadatas']}
             
-        collection.delete(ids=results['ids'])
-        return jsonify({
-            "deleted": len(results['ids']),
-            "remaining_files": len(unique_file_ids) - 1
-        })      
+            if len(unique_file_ids) == 1 and file_id in unique_file_ids:
+                return jsonify({
+                    "error": "Cannot delete the last file in collection",
+                    "suggestion": "Delete the entire collection instead"
+                }), 400
+            
+            # Proceed with deletion if not the last file
+            results = collection.get(where={"file_id": file_id})
+            if not results or not results.get('ids'):
+                return jsonify({"error": "File not found"}), 404
+                
+            collection.delete(ids=results['ids'])
+            return jsonify({
+                "deleted": len(results['ids']),
+                "remaining_files": len(unique_file_ids) - 1
+            })
+        else:
+            return jsonify({"error": "Collection is empty"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -199,16 +204,17 @@ def list_files(collection_name):
         
         # Aggregate by file_id
         files = {}
-        for meta in results['metadatas']:
-            file_id = meta['file_id']
-            if file_id not in files:
-                files[file_id] = {
-                    "filename": meta['filename'],
-                    "uploaded_at": meta['uploaded_at'],
-                    "chunk_count": 1  # Initialize counter
-                }
-            else:
-                files[file_id]['chunk_count'] += 1
+        if results and 'metadatas' in results and results['metadatas']:
+            for meta in results['metadatas']:
+                file_id = meta['file_id']
+                if file_id not in files:
+                    files[file_id] = {
+                        "filename": meta['filename'],
+                        "uploaded_at": meta['uploaded_at'],
+                        "chunk_count": 1  # Initialize counter
+                    }
+                else:
+                    files[file_id]['chunk_count'] += 1
         
         return jsonify({
             "collection": collection_name,
@@ -382,8 +388,10 @@ def list_collections():
 # HackRX specific endpoint
 @rag_routes.route('/hackrx/run', methods=['POST'])
 async def hackrx_run():
-    """HackRX API endpoint for processing documents and answering questions using RAG."""
+    """Optimized HackRX API endpoint with parallel processing."""
     try:
+        start_time = time.time()
+        
         # Check for API key authentication
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
@@ -415,7 +423,8 @@ async def hackrx_run():
             logger.info(f"Returning cached result for request")
             return jsonify(cached_result)
         
-        # If not in cache, process the request
+        # Always process the document (no caching check)
+        collection_name = "hackrx_documents"  # Define collection name
         logger.info(f"Processing document from URL: {documents_url}")
         
         # Download the PDF from the URL
@@ -424,7 +433,6 @@ async def hackrx_run():
             return jsonify({"error": f"Failed to download document: {response.status_code}"}), 400
         
         # Process the document and store in ChromaDB
-        collection_name = "hackrx_documents"
         
         # Create a file-like object for processing
         class FileWrapper:
@@ -442,41 +450,58 @@ async def hackrx_run():
         file_obj = FileWrapper(response.content, "document.pdf")
         
         # Step 1: Upload and process document (create embeddings)
+        document_start = time.time()
         try:
             # Process and store document in ChromaDB
             result = await process_and_store_document(file_obj, collection_name, chroma_client)
             if result.get('status') != 'success':
                 return jsonify({"error": f"Failed to process document: {result.get('message', 'Unknown error')}"}), 500
             
-            logger.info(f"Document processed successfully: {result.get('chunks_added', 0)} chunks added")
+            document_time = time.time() - document_start
+            logger.info(f"Document processed successfully: {result.get('chunks_added', 0)} chunks added in {document_time:.2f}s")
         except Exception as e:
             logger.error(f"Error processing document: {str(e)}")
             return jsonify({"error": f"Failed to process document: {str(e)}"}), 500
         
-        # Step 2: Generate answers for each question using RAG
-        answers = []
-        for question in questions:
+        # Step 2: Process questions in parallel
+        questions_start = time.time()
+        async def process_question_parallel(question):
             try:
-                # Query the vector database for relevant documents
-                relevant_docs = await query_vector_db(question, collection_name, top_k=5, chroma_client=chroma_client)
-                
-                # Generate answer using RAG
-                conversation_history = []  # Start fresh for each question
-                answer = await generate_answer(question, relevant_docs, conversation_history)
-                
-                # Clean the answer (remove markdown formatting)
-                from app.services.openai_services import clean_markdown_formatting
-                clean_answer = clean_markdown_formatting(answer)
-                
-                answers.append(clean_answer)
-                
+                # Use optimized functions for faster processing
+                relevant_docs = await query_vector_db_fast(question, collection_name, top_k=3, chroma_client=chroma_client)
+                answer = await generate_answer_fast(question, relevant_docs, None)  # Pass None for conversation_history
+                return answer
             except Exception as e:
-                logger.error(f"Error generating answer for question '{question}': {str(e)}")
-                answers.append(f"Error processing question: {str(e)}")
+                logger.error(f"Error processing question '{question}': {str(e)}")
+                return f"Error processing question: {str(e)}"
+        
+        # Process all questions in parallel
+        tasks = [process_question_parallel(question) for question in questions]
+        answers = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Handle any exceptions
+        final_answers = []
+        for i, result in enumerate(answers):
+            if isinstance(result, Exception):
+                logger.error(f"Error processing question {i}: {str(result)}")
+                final_answers.append(f"Error processing question: {str(result)}")
+            else:
+                final_answers.append(result)
+        
+        questions_time = time.time() - questions_start
+        total_time = time.time() - start_time
+        
+        logger.info(f"Questions processed in {questions_time:.2f}s, Total time: {total_time:.2f}s")
         
         # Prepare result
         result = {
-            "answers": answers
+            "answers": final_answers,
+            "performance": {
+                "document_processing_time": round(document_time, 2),
+                "questions_processing_time": round(questions_time, 2),
+                "total_time": round(total_time, 2),
+                "questions_count": len(questions)
+            }
         }
         
         # Cache the result
