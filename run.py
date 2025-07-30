@@ -9,6 +9,10 @@ Advanced Production-Ready RAG System
 
 from app import create_app
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = create_app()
 

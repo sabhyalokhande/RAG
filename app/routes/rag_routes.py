@@ -432,7 +432,7 @@ def hackrx_run():
             return jsonify({"error": f"Failed to download document: {response.status_code}"}), 400
         
         # Process the document and store in ChromaDB
-        collection_name = "hackrx_documents_v2"  # Using new collection to avoid dimension conflict
+        collection_name = "hackrx_documents_v4"  # Using new collection for text-embedding-ada-002
         
         # Create a file-like object for processing
         class FileWrapper:

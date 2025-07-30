@@ -1,0 +1,13 @@
+# Azure OpenAI Configuration
+# Copy this to .env file and fill in your values
+
+AZURE_OPENAI_API_KEY=your_api_key_here
+AZURE_OPENAI_ENDPOINT=your_endpoint_here
+
+# Deployment Names (these are already correct)
+AZURE_DEPLOYMENT_EMBEDDING=text-embedding-ada-002
+AZURE_DEPLOYMENT_COMPLETION=gpt-4
+
+# Other Configuration
+FLASK_ENV=development
+SECRET_KEY=your-secret-key 

@@ -218,12 +218,36 @@ def simple_similarity_search(query, documents, top_k=3):
     doc_scores.sort(key=lambda x: x[0], reverse=True)
     return [doc for score, doc in doc_scores[:top_k] if score > 0]
 
+def query_vector_db_fallback(query, collection_name, top_k=3, chroma_client=None):
+    """Fallback query function when embeddings are not available."""
+    try:
+        collection = chroma_client.get_collection(collection_name)
+        # Get all documents without embeddings
+        results = collection.get()
+        
+        if results and results['documents']:
+            # Use simple similarity search
+            relevant_docs = simple_similarity_search(query, results['documents'][0], top_k)
+            return {
+                'documents': [relevant_docs],
+                'metadatas': [results['metadatas'][0][:top_k]] if results['metadatas'] else [],
+                'distances': [[0.0] * len(relevant_docs)]
+            }
+        else:
+            return {'documents': [[]], 'metadatas': [[]], 'distances': [[]]}
+    except Exception as e:
+        logger.error(f"Error in fallback query: {str(e)}")
+        return {'documents': [[]], 'metadatas': [[]], 'distances': [[]]}
+
 def generate_simple_answer(query, relevant_docs, context=""):
     """Generate a dynamic answer based on retrieved documents when LLM is not available."""
     query_lower = query.lower()
     
     # Extract key information from relevant documents
-    context_text = " ".join([doc for doc in relevant_docs['documents'][0]]) if relevant_docs and 'documents' in relevant_docs else ""
+    context_text = ""
+    if relevant_docs and 'documents' in relevant_docs and relevant_docs['documents']:
+        # Join all documents into one context
+        context_text = " ".join(relevant_docs['documents'][0])
     
     # Dynamic answer generation based on retrieved context
     if context_text:
@@ -368,24 +392,18 @@ async def process_and_store_document(file, collection_name, chroma_client):
         
         # Check if Azure OpenAI is available for embeddings
         if async_client is None:
-            # Store without embeddings for fallback mode
-            logger.warning("Azure OpenAI not available, storing documents without embeddings")
-            collection.add(
-                ids=[f"{file_id}_{i}" for i in range(len(chunks))],
-                documents=chunks,
-                metadatas=chunk_metadata
-            )
-        else:
-            # Generate embeddings
-            embeddings = await get_embeddings(chunks)
-            
-            # Store with embeddings
-            collection.add(
-                ids=[f"{file_id}_{i}" for i in range(len(chunks))],
-                embeddings=embeddings,
-                documents=chunks,
-                metadatas=chunk_metadata
-            )
+            raise Exception("Azure OpenAI is required but not available. Please set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables.")
+        
+        # Generate embeddings
+        embeddings = await get_embeddings(chunks)
+        
+        # Store with embeddings
+        collection.add(
+            ids=[f"{file_id}_{i}" for i in range(len(chunks))],
+            embeddings=embeddings,
+            documents=chunks,
+            metadatas=chunk_metadata
+        )
         
         return {
             "status": "success",
@@ -412,40 +430,7 @@ async def query_vector_db(query, collection_name, top_k=1, chroma_client=None):
         
         # Check if Azure OpenAI is available
         if async_client is None:
-            # Fallback to simple keyword search
-            logger.warning("Azure OpenAI not available, using fallback keyword search")
-            try:
-                collection = chroma_client.get_collection(name=collection_name)
-                # Get all documents from collection
-                all_docs = collection.get(include=["documents", "metadatas"])
-                if all_docs and all_docs['documents']:
-                    # Use simple keyword search
-                    relevant_docs = simple_similarity_search(query, all_docs['documents'], top_k)
-                    
-                    # Create a mock result structure
-                    mock_results = {
-                        'documents': [relevant_docs],
-                        'metadatas': [[]],  # Empty metadata for fallback
-                        'distances': [[0.0] * len(relevant_docs)]  # Perfect similarity for fallback
-                    }
-                    
-                    # Cache the results
-                    query_result_cache.set(cache_key, mock_results)
-                    return mock_results
-                else:
-                    # No documents in collection
-                    return {
-                        'documents': [[]],
-                        'metadatas': [[]],
-                        'distances': [[]]
-                    }
-            except Exception as e:
-                logger.error(f"Error in fallback search: {str(e)}")
-                return {
-                    'documents': [[]],
-                    'metadatas': [[]],
-                    'distances': [[]]
-                }
+            raise Exception("Azure OpenAI is required but not available. Please set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables.")
         
         # Get embedding for query
         query_embedding = await get_embeddings([query])
@@ -560,18 +545,7 @@ async def generate_answer(query, relevant_docs, conversation_history, org_info=N
         
         # Check if Azure OpenAI is available
         if async_client is None:
-            # Use fallback answer generation
-            logger.warning("Azure OpenAI not available, using fallback answer generation")
-            answer = generate_simple_answer(query, relevant_docs)
-            
-            # Cache the answer
-            llm_response_cache.set(cache_key, answer)
-            
-            # Update conversation history
-            conversation_history.append({"role": "user", "content": query})
-            conversation_history.append({"role": "assistant", "content": answer})
-            
-            return answer
+            raise Exception("Azure OpenAI is required but not available. Please set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT environment variables.")
         
         # Construct RAG prompt with system instructions
         system_prompt = construct_rag_prompt(query, relevant_docs, org_info, tone)
