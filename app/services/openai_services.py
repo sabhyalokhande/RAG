@@ -16,6 +16,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import asyncio
+from dotenv import load_dotenv
 
 # Azure OpenAI
 import openai
@@ -25,6 +26,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 # Vector database
 import chromadb
 from chromadb.config import Settings
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
