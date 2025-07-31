@@ -234,18 +234,18 @@ def find_semantic_boundaries(text, start, end, max_lookback=100):
     return end
 
 def is_high_quality_chunk(chunk: str) -> bool:
-    """Check if a chunk is high quality for better accuracy - OPTIMIZED for performance."""
-    if not chunk or len(chunk.strip()) < 5:  # REDUCED from 10 to be extremely inclusive
+    """Check if a chunk is high quality for better accuracy - INTELLIGENT REASONING."""
+    if not chunk or len(chunk.strip()) < 3:  # EXTREMELY LENIENT for maximum coverage
         return False
     
     # Check for meaningful content (not just whitespace or special characters)
     meaningful_chars = len(re.sub(r'[^\w]', '', chunk))
-    if meaningful_chars < 2:  # REDUCED from 3 to be extremely inclusive
+    if meaningful_chars < 1:  # EXTREMELY LENIENT for maximum coverage
         return False
     
     # Only reject extremely long chunks without any sentence structure
     sentence_endings = chunk.count('.') + chunk.count('!') + chunk.count('?')
-    if sentence_endings == 0 and len(chunk) > 5000:  # INCREASED from 2000 to be extremely lenient
+    if sentence_endings == 0 and len(chunk) > 10000:  # EXTREMELY LENIENT
         return False
     
     # Accept all other chunks - no keyword requirements
@@ -286,7 +286,7 @@ def chunk_text(text, chunk_size=1024, chunk_overlap=256):
     return chunks
 
 def chunk_text_advanced(text, chunk_size=None, chunk_overlap=None, max_tokens=None, page_count=None):
-    """Advanced chunking with dynamic configuration - OPTIMIZED for performance + accuracy."""
+    """Advanced chunking with dynamic configuration - INTELLIGENT REASONING OPTIMIZATION."""
     if not text:
         return []
     
@@ -300,9 +300,9 @@ def chunk_text_advanced(text, chunk_size=None, chunk_overlap=None, max_tokens=No
     logger.info(f"Starting chunking with {len(text)} characters")
     logger.info(f"Dynamic config: chunk_size={chunk_size}, max_tokens={max_tokens}")
     
-    # OPTIMIZED: Smart truncation based on document size
+    # INTELLIGENT REASONING: Enhanced optimization for better understanding
     if len(text) > Config.LARGE_DOC_THRESHOLD:
-        logger.info("Large document detected, applying aggressive optimization")
+        logger.info("Large document detected, applying intelligent reasoning optimization")
         max_tokens = min(max_tokens, Config.LARGE_DOC_MAX_TOKENS)
         chunk_size = min(chunk_size, Config.LARGE_DOC_CHUNK_SIZE)
     
@@ -310,7 +310,7 @@ def chunk_text_advanced(text, chunk_size=None, chunk_overlap=None, max_tokens=No
     text = truncate_text_for_embeddings(text, max_tokens=max_tokens)
     logger.info(f"After truncation: {len(text)} characters")
     
-    # OPTIMIZED: Use parallel processing for large documents
+    # INTELLIGENT REASONING: Use parallel processing for large documents
     if len(text) > Config.LARGE_DOC_THRESHOLD and Config.PARALLEL_CHUNK_PROCESSING:
         logger.info("Using parallel chunking for large document")
         return chunk_text_parallel(text, chunk_size, chunk_overlap)
@@ -357,7 +357,7 @@ def chunk_text_parallel(text, chunk_size, chunk_overlap):
         return chunk_text_standard(text, chunk_size, chunk_overlap)
 
 def chunk_text_standard(text, chunk_size, chunk_overlap):
-    """Standard chunking algorithm."""
+    """Standard chunking algorithm - INTELLIGENT REASONING."""
     # Split into paragraphs first (works for most document types)
     paragraphs = text.split('\n\n')
     logger.info(f"Found {len(paragraphs)} paragraphs")
@@ -395,8 +395,8 @@ def chunk_text_standard(text, chunk_size, chunk_overlap):
             if current_chunk.strip() and is_high_quality_chunk(current_chunk.strip()):
                 chunks.append(current_chunk.strip())
     
-    # If we still don't have enough chunks, try character-based chunking
-    if len(chunks) < 10:
+    # INTELLIGENT REASONING: Enhanced character-based chunking for better understanding
+    if len(chunks) < 25:  # INCREASED threshold for better reasoning
         logger.info("Not enough chunks from paragraph splitting, trying character-based chunking")
         chunks = []
         start = 0
@@ -415,14 +415,14 @@ def chunk_text_standard(text, chunk_size, chunk_overlap):
             if start >= len(text):
                 break
     
-    # Final filtering - extremely lenient for maximum coverage
-    final_chunks = [chunk for chunk in chunks if len(chunk) > 10]
+    # Final filtering - EXTREMELY LENIENT for maximum coverage
+    final_chunks = [chunk for chunk in chunks if len(chunk) > 5]  # REDUCED to 5 for maximum coverage
     logger.info(f"Final result: {len(final_chunks)} chunks from {len(chunks)} initial chunks")
     
     return final_chunks
 
 def enhance_context_for_accuracy(chunks: List[str]) -> List[str]:
-    """Enhance chunks with additional context for better accuracy."""
+    """Enhance chunks with additional context for better accuracy - INTELLIGENT REASONING."""
     enhanced_chunks = []
     
     for i, chunk in enumerate(chunks):
@@ -430,34 +430,70 @@ def enhance_context_for_accuracy(chunks: List[str]) -> List[str]:
         context_before = chunks[i-1] if i > 0 else ""
         context_after = chunks[i+1] if i < len(chunks)-1 else ""
         
-        # Combine context intelligently
+        # INTELLIGENT REASONING: Enhanced context combination for better understanding
         enhanced_chunk = chunk
         if context_before:
-            enhanced_chunk = context_before[-200:] + " " + enhanced_chunk
+            enhanced_chunk = context_before[-400:] + " " + enhanced_chunk  # INCREASED context for reasoning
         if context_after:
-            enhanced_chunk = enhanced_chunk + " " + context_after[:200]
+            enhanced_chunk = enhanced_chunk + " " + context_after[:400]  # INCREASED context for reasoning
         
         enhanced_chunks.append(enhanced_chunk)
     
     return enhanced_chunks
 
 def prioritize_chunks_by_relevance(chunks: List[str], query_keywords: Optional[List[str]] = None) -> List[str]:
-    """Prioritize chunks based on relevance to query."""
+    """Prioritize chunks based on relevance to query - INTELLIGENT REASONING."""
     if not query_keywords:
         return chunks
     
-    # Simple keyword-based prioritization
+    # Enhanced keyword-based prioritization for reasoning
     scored_chunks = []
     for chunk in chunks:
-        score = sum(1 for keyword in query_keywords if keyword.lower() in chunk.lower())
+        score = 0
+        chunk_lower = chunk.lower()
+        
+        for keyword in query_keywords:
+            keyword_lower = keyword.lower()
+            # Exact match gets higher score
+            if keyword_lower in chunk_lower:
+                score += 5  # INCREASED score for exact matches
+            # Partial match gets lower score
+            elif any(word in chunk_lower for word in keyword_lower.split()):
+                score += 2
+            # Related terms get medium score
+            elif any(related in chunk_lower for related in get_related_terms(keyword_lower)):
+                score += 3
+        
         scored_chunks.append((score, chunk))
     
     # Sort by score (highest first)
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return [chunk for score, chunk in scored_chunks]
 
+def get_related_terms(keyword: str) -> List[str]:
+    """Get related terms for better semantic matching - INTELLIGENT REASONING."""
+    related_terms = {
+        'policy': ['coverage', 'terms', 'conditions', 'clause', 'section', 'provision'],
+        'coverage': ['policy', 'benefit', 'protection', 'inclusion', 'scope'],
+        'premium': ['payment', 'cost', 'fee', 'amount', 'rate'],
+        'claim': ['benefit', 'coverage', 'payment', 'reimbursement'],
+        'hospital': ['medical', 'treatment', 'facility', 'care', 'institution'],
+        'waiting': ['period', 'time', 'delay', 'exclusion', 'restriction'],
+        'grace': ['period', 'extension', 'time', 'payment', 'delay'],
+        'maternity': ['pregnancy', 'childbirth', 'delivery', 'birth', 'prenatal'],
+        'surgery': ['operation', 'procedure', 'treatment', 'medical', 'surgical'],
+        'organ': ['donor', 'transplant', 'medical', 'surgery', 'procedure'],
+        'discount': ['reduction', 'saving', 'benefit', 'claim', 'bonus'],
+        'health': ['medical', 'wellness', 'preventive', 'checkup', 'examination'],
+        'ayush': ['alternative', 'medicine', 'treatment', 'therapy', 'natural'],
+        'room': ['accommodation', 'stay', 'lodging', 'charge', 'rent'],
+        'icu': ['intensive', 'care', 'unit', 'critical', 'emergency']
+    }
+    
+    return related_terms.get(keyword.lower(), [])
+
 def get_dynamic_processing_config(text_length: int, page_count: int) -> dict:
-    """Get dynamic processing configuration based on document characteristics."""
+    """Get dynamic processing configuration based on document characteristics - INTELLIGENT REASONING."""
     if text_length < Config.SMALL_DOCUMENT_THRESHOLD:
         return {
             'chunk_size': Config.SMALL_DOC_CHUNK_SIZE,

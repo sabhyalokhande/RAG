@@ -607,7 +607,7 @@ def clean_markdown_formatting(text):
     return text
 
 def construct_rag_prompt(query, relevant_docs, org_info=None, tone=None):
-    """Construct an enhanced RAG prompt with better context organization and instructions for maximum accuracy."""
+    """Construct a reasoning-optimized RAG prompt for intelligent understanding and inference."""
     try:
         # Extract organization info
         org_name = org_info.get('name', 'Your Organization') if org_info else 'Your Organization'
@@ -617,35 +617,35 @@ def construct_rag_prompt(query, relevant_docs, org_info=None, tone=None):
         if not tone:
             tone = "professional"
         
-        # Enhanced context organization with better structure - REMOVE DOCUMENT REFERENCES
+        # Enhanced context organization - REMOVE ALL DOCUMENT REFERENCES
         context_parts = []
         for i, doc in enumerate(relevant_docs['documents'][0]):
-            # Don't add document source information to avoid cluttering
-            context_parts.append(f"{doc}\n")
+            # Include only the content, no document source information
+            context_parts.append(f"{doc}")
         
-        context_text = "\n".join(context_parts)
+        context_text = "\n\n".join(context_parts)
         
-        # OPTIMIZED system prompt for better accuracy without document references
+        # INTELLIGENT REASONING system prompt for understanding and inference
         system_prompt = f"""You are an AI assistant for {org_name}, {org_description}.
-Your task is to answer questions based on the provided context documents with MAXIMUM ACCURACY.
+Your task is to answer questions based on the provided context documents with INTELLIGENT UNDERSTANDING and REASONING.
 
-CRITICAL ACCURACY GUIDELINES:
+CRITICAL REASONING GUIDELINES:
 1. Use a {tone} tone in your responses.
-2. Base your answers EXCLUSIVELY on the information in the provided documents.
-3. If the documents contain ANY relevant information, provide it accurately and completely with exact details.
+2. Base your answers on the information in the provided documents, but use INTELLIGENT REASONING.
+3. If the documents contain relevant information, analyze it and provide reasoned conclusions.
 4. If the documents don't contain relevant information, clearly state "The provided documents do not contain information about this."
 5. NEVER make up information that isn't supported by the context.
 6. For specific details (numbers, dates, names, amounts, percentages), provide them EXACTLY as stated in the documents.
-7. For policy-related questions, quote the exact policy terms and conditions when possible.
+7. For policy-related questions, analyze the policy language and provide reasoned interpretations.
 8. Structure your response clearly with proper paragraphs and logical flow.
 9. If multiple documents contain relevant information, synthesize the information coherently.
 10. Do not use markdown formatting like **bold** or *italic* in your responses.
 11. If there are conflicting details in different documents, mention this and provide both perspectives.
 12. For technical terms or legal language, explain them in simple terms when possible.
 13. If the question asks for a process or procedure, provide step-by-step details from the documents.
-14. IMPORTANT: Look for ANY relevant information, even if it's not a direct answer to the question.
+14. CRITICAL: Look for ANY relevant information, even if it's not a direct answer to the question.
 15. If you find related information that might be helpful, include it in your response.
-16. Be thorough in your search through the provided context.
+16. Be extremely thorough in your search through the provided context.
 17. If the question is about a specific topic, look for ANY mention of that topic in the documents.
 18. CRITICAL: Search for synonyms, related terms, and alternative phrasings of the question.
 19. Look for information that might be embedded within longer passages or paragraphs.
@@ -654,13 +654,27 @@ CRITICAL ACCURACY GUIDELINES:
 22. If the question asks for laws, principles, or theories, look for their formal statements.
 23. Be extremely thorough - examine every piece of text for relevant information.
 24. DO NOT mention document numbers or sources in your response - focus on the content.
+25. DO NOT add any "Additional context" or document reference lines at the end of your answer.
+
+INTELLIGENT REASONING CAPABILITIES:
+26. REASONING: Understand the context and draw logical conclusions from the information provided.
+27. INFERENCE: If the exact answer isn't stated, infer the answer based on related information.
+28. ANALYSIS: Analyze policy language, conditions, and requirements to provide comprehensive answers.
+29. SYNTHESIS: Combine information from multiple parts of the document to answer complex questions.
+30. INTERPRETATION: Interpret technical language and explain it in understandable terms.
+31. DEDUCTION: Use deductive reasoning to answer questions based on available information.
+32. INDUCTION: Use inductive reasoning to identify patterns and draw conclusions.
+33. CONTEXTUAL UNDERSTANDING: Understand the broader context and implications of the information.
+34. LOGICAL REASONING: Apply logical reasoning to answer questions that require understanding.
+35. CRITICAL THINKING: Evaluate information critically and provide reasoned responses.
+36. COMPREHENSIVE ANALYSIS: Provide comprehensive analysis that demonstrates deep understanding.
 
 Context Information:
 {context_text}
 
 Question: {query}
 
-Please provide a comprehensive and accurate answer based on the context above. If the context doesn't contain the answer, clearly state this. However, if you find ANY relevant information, include it in your response. Be extremely thorough in your analysis."""
+Please provide a comprehensive and reasoned answer based on the context above. Use intelligent reasoning to understand the document content and provide answers that demonstrate deep comprehension. If the context doesn't contain the answer, clearly state this. However, if you find ANY relevant information, analyze it thoroughly and provide reasoned conclusions. DO NOT add any document references or "Additional context" lines to your response."""
         
         return system_prompt
         
@@ -707,33 +721,7 @@ def validate_answer_accuracy(answer: str, query: str, context: str) -> Dict[str,
     
     return validation
 
-def enhance_answer_with_context(answer: str, relevant_docs: Dict, query: str) -> str:
-    """Enhance answer with additional context for better accuracy."""
-    try:
-        # Extract key information from relevant documents
-        key_info = []
-        
-        if relevant_docs and 'documents' in relevant_docs and relevant_docs['documents']:
-            for i, doc in enumerate(relevant_docs['documents'][0]):
-                # Look for specific details that might be missing from the answer
-                if 'policy' in query.lower() and 'policy' in doc.lower():
-                    key_info.append(f"Policy details from document {i+1}")
-                
-                if 'coverage' in query.lower() and 'coverage' in doc.lower():
-                    key_info.append(f"Coverage information from document {i+1}")
-                
-                if 'premium' in query.lower() and 'premium' in doc.lower():
-                    key_info.append(f"Premium details from document {i+1}")
-        
-        # If we found additional context, append it
-        if key_info:
-            answer += f"\n\nAdditional context: {'; '.join(key_info)}"
-        
-        return answer
-        
-    except Exception as e:
-        logger.error(f"Error enhancing answer: {e}")
-        return answer
+
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=6))
 async def generate_answer(query, relevant_docs, conversation_history, org_info=None, tone=None):
@@ -807,9 +795,6 @@ async def generate_answer(query, relevant_docs, conversation_history, org_info=N
         
         # Clean up markdown formatting from the answer
         answer = clean_markdown_formatting(answer)
-        
-        # Enhance answer with additional context
-        answer = enhance_answer_with_context(answer, relevant_docs, query)
         
         # Validate answer accuracy
         validation = validate_answer_accuracy(answer, query, str(relevant_docs))

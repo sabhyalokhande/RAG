@@ -84,6 +84,78 @@ python run.py
 - **Caching**: Custom SmartCache with TTL and LRU
 - **Deployment**: Docker, Google Cloud Run, GKE, Render
 
+## 🔄 Complete RAG Flow
+
+### 1. Document Processing Flow
+```
+📄 Document Upload
+    ↓
+🔍 Text Extraction (PDF/DOCX/TXT)
+    ↓
+✂️  Dynamic Chunking (800-2000 chars with 200 overlap)
+    ↓
+🧠 Embedding Generation (text-embedding-3-large, 3072 dimensions)
+    ↓
+💾 Vector Storage (Pinecone v7.x with gRPC)
+    ↓
+✅ Document Indexed & Ready
+```
+
+### 2. Query Processing Flow
+```
+❓ User Query
+    ↓
+🔍 Query Embedding Generation
+    ↓
+🔎 Vector Similarity Search (top_k=8-35 based on doc size)
+    ↓
+📊 Context Retrieval (relevant chunks)
+    ↓
+🤖 GPT-4 Answer Generation (with intelligent reasoning)
+    ↓
+🧹 Response Cleaning (markdown removal)
+    ↓
+💬 Conversation History Update
+    ↓
+✅ Intelligent Answer Delivered
+```
+
+### 3. HackRX Production Flow
+```
+📋 Batch Questions + Document URL
+    ↓
+📥 Document Download & Processing
+    ↓
+⚡ Parallel Question Processing
+    ↓
+🧠 Intelligent Reasoning Analysis
+    ↓
+📊 Performance Metrics Collection
+    ↓
+💾 Result Caching (1-hour TTL)
+    ↓
+📤 Batch Answers Delivery
+```
+
+### 4. Caching Strategy
+```
+🔄 Multi-Level Caching:
+├── Embedding Cache (24h TTL, 2000 items)
+├── Query Result Cache (1h TTL, 500 items)
+├── LLM Response Cache (30min TTL, 300 items)
+└── HackRX Cache (1h TTL, unlimited)
+```
+
+### 5. Performance Optimization
+```
+⚡ Speed Optimizations:
+├── Parallel Processing (8 workers)
+├── Batch Embeddings (20 items/batch)
+├── Dynamic Configuration (based on doc size)
+├── Async Operations (with sync fallback)
+└── Smart Timeouts (15s vector, 25s generation)
+```
+
 ## 📋 API Reference
 
 ### Health Check
@@ -318,7 +390,7 @@ TEMPERATURE=0.1
 ```bash
 python run.py
 ```
-Server starts on `http://localhost:8080`
+Server starts on `http://localhost:5001`
 
 #### Docker
 ```bash
@@ -356,7 +428,7 @@ kubectl apply -f k8s-secrets.yaml
 
 ### 6. Test the Installation
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:5001/health
 ```
 
 ## 🚀 Enhanced Models & Accuracy Improvements
@@ -646,7 +718,7 @@ import json
 # Upload a document
 files = {'files': open('document.pdf', 'rb')}
 data = {'collection_name': 'my_collection'}
-response = requests.post('http://localhost:8080/api/upload', files=files, data=data)
+response = requests.post('http://localhost:5001/api/upload', files=files, data=data)
 print(response.json())
 
 # Ask a question
@@ -654,25 +726,71 @@ query_data = {
     'query': 'What is the main topic?',
     'collection_name': 'my_collection'
 }
-response = requests.post('http://localhost:8080/api/generate-answer', json=query_data)
+response = requests.post('http://localhost:5001/api/generate-answer', json=query_data)
 print(response.json())
 ```
 
 ### cURL Examples
 ```bash
 # Health check
-curl http://localhost:8080/health
+curl http://localhost:5001/health
 
 # Upload document
-curl -X POST http://localhost:8080/api/upload \
+curl -X POST http://localhost:5001/api/upload \
   -F "files=@document.pdf" \
   -F "collection_name=my_collection"
 
 # Generate answer
-curl -X POST http://localhost:8080/api/generate-answer \
+curl -X POST http://localhost:5001/api/generate-answer \
   -H "Content-Type: application/json" \
   -d '{"query": "What is this about?", "collection_name": "my_collection"}'
 ```
+
+## 🧹 Code Analysis & Unused Functions
+
+### ✅ **ACTIVE FUNCTIONS** (Used in Main Application)
+- `get_embeddings()` - Primary embedding generation
+- `get_embeddings_optimized()` - Used in document processing
+- `process_and_store_document()` - Document upload and storage
+- `query_vector_db()` - Primary vector search
+- `generate_answer()` - Main answer generation
+- `clean_markdown_formatting()` - Response cleaning
+- `construct_rag_prompt()` - Enhanced prompt engineering
+- `validate_answer_accuracy()` - Answer validation
+- `extract_text_from_file()` - File text extraction
+- `chunk_text_advanced()` - Dynamic text chunking
+- `get_dynamic_processing_config()` - Dynamic configuration
+- `clean_text()` - Text normalization
+- `truncate_text_for_embeddings()` - Token limit management
+
+### ⚠️ **UNUSED FUNCTIONS** (Not Used in Main Code)
+- `query_vector_db_fast()` - Alternative fast search (imported but not used)
+- `generate_answer_fast()` - Alternative fast generation (imported but not used)
+- `enhance_context_for_accuracy()` - Context enhancement (defined but not used)
+- `prioritize_chunks_by_relevance()` - Chunk prioritization (defined but not used)
+- `query_across_namespaces()` - Cross-namespace search (defined but not used)
+- `upsert_from_dataframe()` - DataFrame upsert (defined but not used)
+- `get_collection_stats()` - Collection statistics (defined but not used)
+- `get_index_stats()` - Index statistics (defined but not used)
+- `extract_text_from_url()` - URL text extraction (defined but not used)
+- `chunk_text_parallel()` - Parallel chunking (defined but not used)
+- `chunk_text_standard()` - Standard chunking (used internally)
+- `extract_text_parallel()` - Parallel PDF extraction (defined but not used)
+
+### 📊 **TEST FILES** (Development/Testing Only)
+- `test_intelligent_reasoning.py` - Intelligent reasoning tests
+- `test_accuracy_improvements.py` - Accuracy improvement tests
+- `test_hackrx.py` - HackRX endpoint tests
+- `test_maximum_accuracy.py` - Maximum accuracy tests
+- `test_performance_accuracy.py` - Performance accuracy tests
+- `test_scoring_optimization.py` - Scoring optimization tests
+- `pinecone_example.py` - Pinecone usage examples
+
+### 🔧 **RECOMMENDATIONS**
+1. **Keep Unused Functions**: They provide fallback capabilities and future extensibility
+2. **Maintain Test Files**: They are valuable for development and validation
+3. **Consider Cleanup**: Remove truly unused functions if they add no value
+4. **Documentation**: All functions are well-documented for future use
 
 ## 🤝 Contributing
 

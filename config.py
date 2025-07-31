@@ -30,44 +30,46 @@ class Config:
     # ChromaDB Configuration (fallback)
     CHROMA_DB_PATH = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
     
-    # RAG Configuration - OPTIMIZED FOR PERFORMANCE + ACCURACY
-    CHUNK_SIZE = 2000  # OPTIMIZED from 2500 for better performance
-    CHUNK_OVERLAP = 500  # OPTIMIZED from 600 for better performance
-    MAX_TOKENS = 12000  # OPTIMIZED from 16000 for better performance
-    SIMILARITY_TOP_K = 30  # OPTIMIZED from 40 for better performance
-    TEMPERATURE = 0.05  # REDUCED from 0.1 for maximum consistency
+    # RAG Configuration - MAXIMUM SCORING OPTIMIZATION
+    CHUNK_SIZE = 3000  # INCREASED for maximum context preservation
+    CHUNK_OVERLAP = 800  # INCREASED for maximum context continuity
+    MAX_TOKENS = 16000  # INCREASED for comprehensive processing
+    SIMILARITY_TOP_K = 50  # INCREASED for maximum retrieval
+    TEMPERATURE = 0.01  # REDUCED for maximum consistency
     
-    # Performance Optimizations - OPTIMIZED FOR SPEED + ACCURACY
-    BATCH_SIZE_EMBEDDINGS = 25  # INCREASED from 15 for better performance
-    TOP_K_REDUCED = 12  # OPTIMIZED from 15 for better performance
-    MAX_TOKENS_REDUCED = 6000  # OPTIMIZED from 8000 for better performance
-    TIMEOUT_VECTOR_SEARCH = 30.0  # REDUCED from 45.0 for better performance
-    TIMEOUT_ANSWER_GENERATION = 45.0  # REDUCED from 60.0 for better performance
-    TIMEOUT_EMBEDDING_GENERATION = 10.0  # REDUCED from 15.0 for better performance
-    CONTEXT_LIMIT = 3000  # OPTIMIZED from 4000 for better performance
-    MAX_PARALLEL_QUESTS = 6  # REDUCED from 8 for better quality
-    MAX_CHUNKS_PER_DOCUMENT = 200  # REDUCED from 300 for better performance
+    # Performance Optimizations - SCORING FOCUSED
+    BATCH_SIZE_EMBEDDINGS = 20  # OPTIMIZED for better quality
+    TOP_K_REDUCED = 20  # INCREASED for maximum accuracy
+    MAX_TOKENS_REDUCED = 8000  # INCREASED for comprehensive answers
+    TIMEOUT_VECTOR_SEARCH = 45.0  # INCREASED for thorough search
+    TIMEOUT_ANSWER_GENERATION = 60.0  # INCREASED for detailed answers
+    TIMEOUT_EMBEDDING_GENERATION = 15.0  # INCREASED for quality
+    CONTEXT_LIMIT = 5000  # INCREASED for maximum context
+    MAX_PARALLEL_QUESTS = 4  # REDUCED for better quality
+    MAX_CHUNKS_PER_DOCUMENT = 400  # INCREASED for maximum coverage
     
-    # NEW: Performance Enhancement Settings
+    # NEW: Scoring Enhancement Settings
     ENABLE_PARALLEL_PROCESSING = True  # Enable parallel document processing
     ENABLE_SMART_CHUNKING = True  # Enable intelligent chunking
     ENABLE_PRIORITY_QUEUE = True  # Enable priority-based processing
     ENABLE_CACHE_OPTIMIZATION = True  # Enable cache optimization
     ENABLE_PROGRESSIVE_LOADING = True  # Enable progressive document loading
+    ENABLE_SCORING_OPTIMIZATION = True  # Enable scoring-specific optimizations
     
-    # NEW: Large Document Optimization
+    # NEW: Large Document Optimization for Scoring
     LARGE_DOC_THRESHOLD = 500000  # 500KB - documents larger than this get special treatment
     HUGE_DOC_THRESHOLD = 1000000  # 1MB - documents larger than this get aggressive optimization
     PARALLEL_CHUNK_PROCESSING = True  # Process chunks in parallel
     SMART_CHUNK_SELECTION = True  # Select most relevant chunks first
     PROGRESSIVE_EMBEDDING = True  # Generate embeddings progressively
     
-    # Accuracy Enhancement Settings - OPTIMIZED
-    MIN_CHUNK_QUALITY_SCORE = 0.1  # REDUCED from 0.3 to be extremely inclusive
-    ANSWER_CONFIDENCE_THRESHOLD = 0.2  # REDUCED from 0.4 to accept more answers
+    # Accuracy Enhancement Settings - MAXIMUM SCORING
+    MIN_CHUNK_QUALITY_SCORE = 0.05  # EXTREMELY LENIENT for maximum coverage
+    ANSWER_CONFIDENCE_THRESHOLD = 0.1  # EXTREMELY LENIENT to accept more answers
     ENABLE_CONTEXT_ENHANCEMENT = True  # Enable context enhancement
     ENABLE_ANSWER_VALIDATION = True  # Enable answer validation
     ENABLE_CHUNK_PRIORITIZATION = True  # Enable chunk prioritization
+    ENABLE_SCORING_BOOST = True  # Enable scoring boost features
     
     # File Upload Configuration
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "./uploads")
@@ -77,7 +79,7 @@ class Config:
     ORG_DESCRIPTION = os.environ.get("ORG_DESCRIPTION", "A leading provider of innovative solutions")
     DEFAULT_TONE = os.environ.get("DEFAULT_TONE", "professional")
     
-    # Dynamic Processing Configuration - OPTIMIZED FOR PERFORMANCE + ACCURACY
+    # Dynamic Processing Configuration - MAXIMUM SCORING
     # Small documents (< 100KB, < 50 pages): High accuracy, detailed processing
     # Medium documents (100KB-1MB, 50-200 pages): Balanced processing
     # Large documents (> 1MB, > 200 pages): Fast processing, essential content only
@@ -90,21 +92,21 @@ class Config:
     SMALL_PAGE_THRESHOLD = 50
     LARGE_PAGE_THRESHOLD = 200
     
-    # Processing time targets - OPTIMIZED
-    TARGET_PROCESSING_TIME = 60  # REDUCED from 90 to 60 seconds target
-    MAX_PROCESSING_TIME = 120  # REDUCED from 180 to 120 seconds maximum
+    # Processing time targets - SCORING OPTIMIZED
+    TARGET_PROCESSING_TIME = 120  # INCREASED for better accuracy
+    MAX_PROCESSING_TIME = 300  # INCREASED for maximum processing
     
-    # Dynamic chunking based on document size - OPTIMIZED
-    SMALL_DOC_CHUNK_SIZE = 2500  # OPTIMIZED from 3000 for better performance
-    MEDIUM_DOC_CHUNK_SIZE = 2000  # OPTIMIZED from 2500 for better performance
-    LARGE_DOC_CHUNK_SIZE = 1000   # OPTIMIZED from 1200 for better performance
+    # Dynamic chunking based on document size - MAXIMUM SCORING
+    SMALL_DOC_CHUNK_SIZE = 3500  # INCREASED for maximum context
+    MEDIUM_DOC_CHUNK_SIZE = 3000  # INCREASED for maximum context
+    LARGE_DOC_CHUNK_SIZE = 1500   # INCREASED for maximum context
     
-    # Dynamic retrieval based on document size - OPTIMIZED
-    SMALL_DOC_TOP_K = 35  # OPTIMIZED from 50 for better performance
-    MEDIUM_DOC_TOP_K = 30  # OPTIMIZED from 40 for better performance
-    LARGE_DOC_TOP_K = 20    # OPTIMIZED from 25 for better performance
+    # Dynamic retrieval based on document size - MAXIMUM SCORING
+    SMALL_DOC_TOP_K = 60  # INCREASED for maximum retrieval
+    MEDIUM_DOC_TOP_K = 50  # INCREASED for maximum retrieval
+    LARGE_DOC_TOP_K = 35    # INCREASED for maximum retrieval
     
-    # Dynamic token limits based on document size - OPTIMIZED
-    SMALL_DOC_MAX_TOKENS = 128000  # OPTIMIZED from 256000 for better performance
-    MEDIUM_DOC_MAX_TOKENS = 64000  # OPTIMIZED from 128000 for better performance
-    LARGE_DOC_MAX_TOKENS = 32000  # OPTIMIZED from 64000 for better performance
+    # Dynamic token limits based on document size - MAXIMUM SCORING
+    SMALL_DOC_MAX_TOKENS = 256000  # INCREASED for full processing
+    MEDIUM_DOC_MAX_TOKENS = 128000  # INCREASED for maximum processing
+    LARGE_DOC_MAX_TOKENS = 64000  # INCREASED for maximum processing
