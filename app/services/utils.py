@@ -2,116 +2,480 @@
 Advanced Production-Ready Utils
 - Document processing functions
 - Text extraction and cleaning
-- Chunking algorithms
+- Chunking algorithms with semantic boundaries
 - File format support
 """
 
 import os
 import re
 import logging
+import asyncio
+from typing import List, Dict, Optional
+import PyPDF2
+import docx
 from io import BytesIO
-from typing import List
-
-# Document processing
-import docx2txt
-from pypdf import PdfReader
+import requests
+from urllib.parse import urlparse
+from config import Config
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def clean_text(raw_text):
-    """Clean raw text by normalizing whitespace and paragraph spacing."""
-    cleaned = re.sub(r'\s+', ' ', raw_text)  # collapse whitespace
-    cleaned = re.sub(r'\n{2,}', '\n\n', cleaned)  # normalize paragraph spacing
-    return cleaned.strip()
-
-def get_raw_data_from_docx(file):
-    """Extract text from a .docx file."""
-    # Create /tmp directory if it doesn't exist
-    temp_dir = '/tmp'
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    # Create a secure temporary file path
-    temp_file_path = os.path.join(temp_dir, file.filename.replace('/', '_'))
-    
-    # Save the file
-    file.save(temp_file_path)
-    
+def get_token_count(text: str, model: str = "text-embedding-3-large") -> int:
+    """Get the token count for a text using a simple approximation."""
     try:
-        text = docx2txt.process(temp_file_path)
-    finally:
-        # Ensure the temp file is removed even if processing fails
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
-    
-    return text
-
-def get_raw_data_txt(file):
-    """Extract text from a .txt file."""
-    return file.read().decode('utf-8')
-
-def get_raw_data_pdf(file):
-    """Extract text from a .pdf file."""
-    pdf_bytes = file.read()
-    pdf_stream = BytesIO(pdf_bytes)
-
-    text = ""
-    pdf_reader = PdfReader(pdf_stream)
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
-
-def extract_text_from_file(file):
-    """Extract text from a file based on its extension."""
-    file_name = file.filename.lower()
-    
-    try:
-        if file_name.endswith(".txt"):
-            raw_text = get_raw_data_txt(file)
-        elif file_name.endswith(".pdf"):
-            raw_text = get_raw_data_pdf(file)
-        elif file_name.endswith(".docx"):
-            raw_text = get_raw_data_from_docx(file)
-        else:
-            raise ValueError(f"Unsupported file format: {file_name}")
-        
-        return clean_text(raw_text)
+        # Simple approximation: 1 token ≈ 4 characters for English text
+        # This is a reasonable approximation for text-embedding-3-large
+        return len(text) // 4
     except Exception as e:
-        logger.error(f"Error extracting text from {file_name}: {str(e)}")
-        raise
+        logger.warning(f"Error counting tokens: {e}")
+        return len(text) // 4
 
-def chunk_text(text, chunk_size=2048, chunk_overlap=200):  # Much larger chunks
-    """Split text into overlapping chunks of specified size."""
+def truncate_text_for_embeddings(text: str, max_tokens: int = 128000) -> str:
+    """Truncate text to stay within the embedding model's token limit - OPTIMIZED for performance."""
+    if get_token_count(text) <= max_tokens:
+        return text
+    
+    # OPTIMIZED token limit for better performance
+    # 128000 tokens ≈ 512000 characters (optimized from 256000 tokens)
+    max_chars = max_tokens * 4
+    return text[:max_chars]
+
+def clean_text(text: str) -> str:
+    """Clean and normalize text for better processing."""
+    if not text:
+        return ""
+    
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove special characters but keep important punctuation
+    text = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]\{\}\"\']', '', text)
+    
+    # Normalize quotes
+    text = text.replace('"', '"').replace('"', '"')
+    text = text.replace(''', "'").replace(''', "'")
+    
+    # Remove multiple periods
+    text = re.sub(r'\.{2,}', '.', text)
+    
+    return text.strip()
+
+def extract_text_from_file(file) -> str:
+    """Extract text from various file formats with enhanced error handling."""
+    try:
+        filename = file.filename.lower()
+        
+        if filename.endswith('.pdf'):
+            return extract_text_from_pdf(file)
+        elif filename.endswith('.docx'):
+            return extract_text_from_docx(file)
+        elif filename.endswith('.txt'):
+            return extract_text_from_txt(file)
+        else:
+            logger.warning(f"Unsupported file format: {filename}")
+            return ""
+            
+    except Exception as e:
+        logger.error(f"Error extracting text from file: {e}")
+        return ""
+
+def extract_text_from_pdf(file) -> str:
+    """Extract text from PDF with enhanced error handling."""
+    try:
+        # Check if file has content
+        if hasattr(file, 'content'):
+            logger.info(f"PDF file has {len(file.content)} bytes")
+        else:
+            logger.warning("PDF file object doesn't have content attribute")
+        
+        # Try to read the file first
+        try:
+            file.seek(0)
+            content = file.read()
+            logger.info(f"Successfully read {len(content)} bytes from PDF file")
+        except Exception as read_error:
+            logger.error(f"Error reading PDF file: {read_error}")
+            return ""
+        
+        # Use PyPDF2 for text extraction
+        try:
+            pdf_reader = PyPDF2.PdfReader(BytesIO(content))
+            text = ""
+            
+            # OPTIMIZED: Process pages in parallel for large documents
+            if len(pdf_reader.pages) > 50:  # Large document
+                logger.info(f"Large PDF detected ({len(pdf_reader.pages)} pages), using parallel processing")
+                text = extract_text_parallel(pdf_reader)
+            else:
+                # Sequential processing for smaller documents
+                for page_num, page in enumerate(pdf_reader.pages):
+                    try:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + "\n"
+                        logger.debug(f"Processed page {page_num + 1}")
+                    except Exception as page_error:
+                        logger.warning(f"Error extracting text from page {page_num + 1}: {page_error}")
+                        continue
+            
+            logger.info(f"Successfully extracted {len(text)} characters from PDF")
+            return clean_text(text)
+            
+        except Exception as pdf_error:
+            logger.error(f"Error processing PDF: {pdf_error}")
+            return ""
+            
+    except Exception as e:
+        logger.error(f"Error extracting text from PDF: {e}")
+        return ""
+
+def extract_text_parallel(pdf_reader) -> str:
+    """Extract text from PDF pages in parallel for better performance."""
+    try:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Submit all page extraction tasks
+            future_to_page = {
+                executor.submit(extract_page_text, page, i): i 
+                for i, page in enumerate(pdf_reader.pages)
+            }
+            
+            # Collect results in order
+            page_texts = [""] * len(pdf_reader.pages)
+            for future in as_completed(future_to_page):
+                page_num = future_to_page[future]
+                try:
+                    page_text = future.result()
+                    page_texts[page_num] = page_text
+                except Exception as e:
+                    logger.warning(f"Error processing page {page_num + 1}: {e}")
+            
+            # Combine all page texts
+            text = "\n".join(page_texts)
+            logger.info(f"Parallel extraction completed: {len(text)} characters")
+            return text
+            
+    except Exception as e:
+        logger.error(f"Error in parallel text extraction: {e}")
+        return ""
+
+def extract_page_text(page, page_num: int) -> str:
+    """Extract text from a single PDF page."""
+    try:
+        text = page.extract_text()
+        if text:
+            logger.debug(f"Extracted {len(text)} characters from page {page_num + 1}")
+            return text
+        return ""
+    except Exception as e:
+        logger.warning(f"Error extracting text from page {page_num + 1}: {e}")
+        return ""
+
+def extract_text_from_docx(file) -> str:
+    """Extract text from DOCX file."""
+    try:
+        doc = docx.Document(file)
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+        logger.info(f"Successfully extracted {len(text)} characters from DOCX")
+        return clean_text(text)
+    except Exception as e:
+        logger.error(f"Error extracting text from DOCX: {e}")
+        return ""
+
+def extract_text_from_txt(file) -> str:
+    """Extract text from TXT file."""
+    try:
+        content = file.read()
+        text = content.decode('utf-8')
+        logger.info(f"Successfully extracted {len(text)} characters from TXT")
+        return clean_text(text)
+    except Exception as e:
+        logger.error(f"Error extracting text from TXT: {e}")
+        return ""
+
+def extract_text_from_url(url: str) -> str:
+    """Extract text from URL with enhanced error handling."""
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        # Try to determine file type and extract accordingly
+        content_type = response.headers.get('content-type', '').lower()
+        
+        if 'pdf' in content_type or url.lower().endswith('.pdf'):
+            # Handle PDF from URL
+            pdf_reader = PyPDF2.PdfReader(BytesIO(response.content))
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+        else:
+            # Assume it's text
+            text = response.text
+        
+        logger.info(f"Successfully extracted {len(text)} characters from URL")
+        return clean_text(text)
+        
+    except Exception as e:
+        logger.error(f"Error extracting text from URL: {e}")
+        return ""
+
+def find_semantic_boundaries(text, start, end, max_lookback=100):
+    """Find semantic boundaries for chunking."""
+    # Look for sentence endings, paragraph breaks, or natural breaks
+    for i in range(end, max(start, end - max_lookback), -1):
+        if text[i-1] in '.!?':
+            return i
+        elif text[i-1] == '\n':
+            return i
+    return end
+
+def is_high_quality_chunk(chunk: str) -> bool:
+    """Check if a chunk is high quality for better accuracy - OPTIMIZED for performance."""
+    if not chunk or len(chunk.strip()) < 5:  # REDUCED from 10 to be extremely inclusive
+        return False
+    
+    # Check for meaningful content (not just whitespace or special characters)
+    meaningful_chars = len(re.sub(r'[^\w]', '', chunk))
+    if meaningful_chars < 2:  # REDUCED from 3 to be extremely inclusive
+        return False
+    
+    # Only reject extremely long chunks without any sentence structure
+    sentence_endings = chunk.count('.') + chunk.count('!') + chunk.count('?')
+    if sentence_endings == 0 and len(chunk) > 5000:  # INCREASED from 2000 to be extremely lenient
+        return False
+    
+    # Accept all other chunks - no keyword requirements
+    return True
+
+def chunk_text(text, chunk_size=1024, chunk_overlap=256):
+    """Split text into overlapping chunks with semantic boundaries for better accuracy."""
     if not text:
         return []
     
+    # Truncate text to stay within embedding model limits
+    text = truncate_text_for_embeddings(text, max_tokens=8000)
+    
     chunks = []
     start = 0
-    text_length = len(text)
     
-    while start < text_length:
-        # Determine the end position for this chunk
-        end = min(start + chunk_size, text_length)
+    while start < len(text):
+        end = start + chunk_size
         
-        # If we're not at the end of the text, try to find a good breaking point
-        if end < text_length:
-            # Look for a space or newline to break at
-            while end > start + chunk_size - chunk_overlap and not text[end].isspace():
-                end -= 1
+        if end >= len(text):
+            chunk = text[start:]
+        else:
+            # Find semantic boundary
+            boundary = find_semantic_boundaries(text, start, end)
+            chunk = text[start:boundary]
         
-        # Extract the chunk and add it to our list
-        chunk = text[start:end].strip()
-        if chunk:  # Only add non-empty chunks
-            chunks.append(chunk)
+        # Only add high-quality chunks
+        if chunk and is_high_quality_chunk(chunk):
+            chunks.append(chunk.strip())
         
-        # Move the start pointer, accounting for overlap
-        start = end
-        if start < text_length and text[start].isspace():
-            start += 1  # Skip the space we broke at
+        # Move start position with overlap
+        start = start + chunk_size - chunk_overlap
         
-        # Apply overlap (but not if we're already at the end)
-        if start < text_length:
-            start = max(start - chunk_overlap, 0)
+        # Prevent infinite loop
+        if start >= len(text):
+            break
     
-    return chunks 
+    return chunks
+
+def chunk_text_advanced(text, chunk_size=None, chunk_overlap=None, max_tokens=None, page_count=None):
+    """Advanced chunking with dynamic configuration - OPTIMIZED for performance + accuracy."""
+    if not text:
+        return []
+    
+    # Get dynamic configuration based on document characteristics
+    if chunk_size is None or max_tokens is None:
+        dynamic_config = get_dynamic_processing_config(len(text), page_count or 0)
+        chunk_size = chunk_size or dynamic_config['chunk_size']
+        chunk_overlap = chunk_overlap or dynamic_config['chunk_overlap']
+        max_tokens = max_tokens or dynamic_config['max_tokens']
+    
+    logger.info(f"Starting chunking with {len(text)} characters")
+    logger.info(f"Dynamic config: chunk_size={chunk_size}, max_tokens={max_tokens}")
+    
+    # OPTIMIZED: Smart truncation based on document size
+    if len(text) > Config.LARGE_DOC_THRESHOLD:
+        logger.info("Large document detected, applying aggressive optimization")
+        max_tokens = min(max_tokens, Config.LARGE_DOC_MAX_TOKENS)
+        chunk_size = min(chunk_size, Config.LARGE_DOC_CHUNK_SIZE)
+    
+    # Truncate text to stay within embedding model limits
+    text = truncate_text_for_embeddings(text, max_tokens=max_tokens)
+    logger.info(f"After truncation: {len(text)} characters")
+    
+    # OPTIMIZED: Use parallel processing for large documents
+    if len(text) > Config.LARGE_DOC_THRESHOLD and Config.PARALLEL_CHUNK_PROCESSING:
+        logger.info("Using parallel chunking for large document")
+        return chunk_text_parallel(text, chunk_size, chunk_overlap)
+    
+    # Standard chunking for smaller documents
+    return chunk_text_standard(text, chunk_size, chunk_overlap)
+
+def chunk_text_parallel(text, chunk_size, chunk_overlap):
+    """Chunk text using parallel processing for large documents."""
+    try:
+        # Split text into sections for parallel processing
+        section_size = len(text) // 4  # Split into 4 sections
+        sections = [text[i:i+section_size] for i in range(0, len(text), section_size)]
+        
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Process each section in parallel
+            future_to_section = {
+                executor.submit(chunk_text_standard, section, chunk_size, chunk_overlap): i 
+                for i, section in enumerate(sections)
+            }
+            
+            # Collect results
+            all_chunks = []
+            for future in as_completed(future_to_section):
+                try:
+                    chunks = future.result()
+                    all_chunks.extend(chunks)
+                except Exception as e:
+                    logger.warning(f"Error in parallel chunking: {e}")
+        
+        # Final filtering and deduplication
+        final_chunks = []
+        seen_chunks = set()
+        for chunk in all_chunks:
+            if chunk and len(chunk) > 10 and chunk not in seen_chunks:
+                final_chunks.append(chunk)
+                seen_chunks.add(chunk)
+        
+        logger.info(f"Parallel chunking completed: {len(final_chunks)} chunks")
+        return final_chunks
+        
+    except Exception as e:
+        logger.error(f"Error in parallel chunking: {e}")
+        return chunk_text_standard(text, chunk_size, chunk_overlap)
+
+def chunk_text_standard(text, chunk_size, chunk_overlap):
+    """Standard chunking algorithm."""
+    # Split into paragraphs first (works for most document types)
+    paragraphs = text.split('\n\n')
+    logger.info(f"Found {len(paragraphs)} paragraphs")
+    
+    chunks = []
+    
+    for i, paragraph in enumerate(paragraphs):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+            
+        # If paragraph is small enough, add it as a single chunk
+        if len(paragraph) <= chunk_size:
+            if is_high_quality_chunk(paragraph):
+                chunks.append(paragraph)
+        else:
+            # For large paragraphs, split into sentences
+            sentences = re.split(r'[.!?]+', paragraph)
+            current_chunk = ""
+            
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                
+                # If adding this sentence would exceed chunk size
+                if len(current_chunk) + len(sentence) > chunk_size:
+                    if current_chunk and is_high_quality_chunk(current_chunk.strip()):
+                        chunks.append(current_chunk.strip())
+                    current_chunk = sentence
+                else:
+                    current_chunk += " " + sentence if current_chunk else sentence
+            
+            # Add the last chunk if high quality
+            if current_chunk.strip() and is_high_quality_chunk(current_chunk.strip()):
+                chunks.append(current_chunk.strip())
+    
+    # If we still don't have enough chunks, try character-based chunking
+    if len(chunks) < 10:
+        logger.info("Not enough chunks from paragraph splitting, trying character-based chunking")
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            if end >= len(text):
+                chunk = text[start:]
+            else:
+                boundary = find_semantic_boundaries(text, start, end)
+                chunk = text[start:boundary]
+            
+            if chunk and is_high_quality_chunk(chunk.strip()):
+                chunks.append(chunk.strip())
+            
+            start = start + chunk_size - chunk_overlap
+            if start >= len(text):
+                break
+    
+    # Final filtering - extremely lenient for maximum coverage
+    final_chunks = [chunk for chunk in chunks if len(chunk) > 10]
+    logger.info(f"Final result: {len(final_chunks)} chunks from {len(chunks)} initial chunks")
+    
+    return final_chunks
+
+def enhance_context_for_accuracy(chunks: List[str]) -> List[str]:
+    """Enhance chunks with additional context for better accuracy."""
+    enhanced_chunks = []
+    
+    for i, chunk in enumerate(chunks):
+        # Add context from surrounding chunks
+        context_before = chunks[i-1] if i > 0 else ""
+        context_after = chunks[i+1] if i < len(chunks)-1 else ""
+        
+        # Combine context intelligently
+        enhanced_chunk = chunk
+        if context_before:
+            enhanced_chunk = context_before[-200:] + " " + enhanced_chunk
+        if context_after:
+            enhanced_chunk = enhanced_chunk + " " + context_after[:200]
+        
+        enhanced_chunks.append(enhanced_chunk)
+    
+    return enhanced_chunks
+
+def prioritize_chunks_by_relevance(chunks: List[str], query_keywords: Optional[List[str]] = None) -> List[str]:
+    """Prioritize chunks based on relevance to query."""
+    if not query_keywords:
+        return chunks
+    
+    # Simple keyword-based prioritization
+    scored_chunks = []
+    for chunk in chunks:
+        score = sum(1 for keyword in query_keywords if keyword.lower() in chunk.lower())
+        scored_chunks.append((score, chunk))
+    
+    # Sort by score (highest first)
+    scored_chunks.sort(key=lambda x: x[0], reverse=True)
+    return [chunk for score, chunk in scored_chunks]
+
+def get_dynamic_processing_config(text_length: int, page_count: int) -> dict:
+    """Get dynamic processing configuration based on document characteristics."""
+    if text_length < Config.SMALL_DOCUMENT_THRESHOLD:
+        return {
+            'chunk_size': Config.SMALL_DOC_CHUNK_SIZE,
+            'chunk_overlap': Config.CHUNK_OVERLAP,
+            'max_tokens': Config.SMALL_DOC_MAX_TOKENS,
+            'processing_mode': 'SMALL'
+        }
+    elif text_length > Config.LARGE_DOCUMENT_THRESHOLD:
+        return {
+            'chunk_size': Config.LARGE_DOC_CHUNK_SIZE,
+            'chunk_overlap': Config.CHUNK_OVERLAP,
+            'max_tokens': Config.LARGE_DOC_MAX_TOKENS,
+            'processing_mode': 'LARGE'
+        }
+    else:
+        return {
+            'chunk_size': Config.MEDIUM_DOC_CHUNK_SIZE,
+            'chunk_overlap': Config.CHUNK_OVERLAP,
+            'max_tokens': Config.MEDIUM_DOC_MAX_TOKENS,
+            'processing_mode': 'MEDIUM'
+        } 

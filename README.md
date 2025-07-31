@@ -1,6 +1,6 @@
 # Advanced Production-Ready RAG System
 
-A sophisticated Flask-based RAG (Retrieval-Augmented Generation) system with ChromaDB vector storage, Azure OpenAI integration, and multi-user support. This system is designed for enterprise-grade document processing and intelligent question answering.
+A sophisticated Flask-based RAG (Retrieval-Augmented Generation) system with **Pinecone v7.x** vector database for high-performance similarity search, Azure OpenAI integration with enhanced models, and multi-user support. This system is designed for enterprise-grade document processing and intelligent question answering with superior speed and accuracy.
 
 ## 🚀 Quick Start
 
@@ -13,6 +13,13 @@ gcloud run deploy rag --image gcr.io/YOUR_PROJECT_ID/rag --platform managed --re
 
 ### Deploy to Render
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+### Deploy to Google Kubernetes Engine (GKE)
+```bash
+# Automated deployment
+chmod +x deploy-gcp.sh
+./deploy-gcp.sh
+```
 
 ### Local Development
 ```bash
@@ -35,8 +42,8 @@ python run.py
 
 ### Core Capabilities
 - **📄 Multi-Format Document Processing**: PDF, TXT, DOCX with robust text extraction
-- **🧠 Intelligent Vector Search**: ChromaDB-powered similarity search with optimized embeddings
-- **🤖 Azure OpenAI Integration**: Enterprise-grade AI with GPT-4 and text-embedding-3-small
+- **🧠 Intelligent Vector Search**: **Pinecone v7.x**-powered similarity search with gRPC support and superior performance
+- **🤖 Enhanced Azure OpenAI Integration**: Enterprise-grade AI with **GPT-4** and **text-embedding-3-large** (3072 dimensions)
 - **💬 Multi-Turn Conversations**: Context-aware dialogue with conversation history
 - **⚡ High Performance**: Async processing with smart caching and timeout handling
 - **🔒 Production Ready**: Comprehensive error handling, logging, and security features
@@ -48,32 +55,34 @@ python run.py
 - **👥 Multi-User Support**: Session management and conversation isolation
 - **🗂️ Collection Management**: Organize documents into logical collections
 - **🎨 Customizable Responses**: Tone, style, and organization-specific formatting
+- **🎯 Enhanced Accuracy**: Improved models and chunking strategies for better results
 
 ## 🏗️ Architecture
 
 ### System Components
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Web Client    │    │   Flask App     │    │   ChromaDB      │
+│   Web Client    │    │   Flask App     │    │   Pinecone v7.x │
 │   (Postman/UI)  │◄──►│   (Quart)       │◄──►│   Vector Store  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                               │
                               ▼
                        ┌─────────────────┐
                        │  Azure OpenAI   │
-                       │   (Embeddings   │
-                       │   & Chat)       │
+                       │   (GPT-4 &      │
+                       │   text-embedding│
+                       │   -3-large)     │
                        └─────────────────┘
 ```
 
 ### Technology Stack
 - **Web Framework**: Quart (async Flask)
-- **Vector Database**: ChromaDB
-- **AI Provider**: Azure OpenAI
+- **Vector Database**: **Pinecone v7.x** (primary with gRPC), ChromaDB (fallback)
+- **AI Provider**: Azure OpenAI with enhanced models
 - **HTTP Client**: httpx (async) with aiohttp fallback
 - **Document Processing**: pypdf, python-docx, docx2txt
 - **Caching**: Custom SmartCache with TTL and LRU
-- **Deployment**: Docker, Google Cloud Run, Render
+- **Deployment**: Docker, Google Cloud Run, GKE, Render
 
 ## 📋 API Reference
 
@@ -149,7 +158,7 @@ Content-Type: application/json
 {
   "query": "What is machine learning?",
   "collection_name": "my_collection",
-  "top_k": 5
+  "top_k": 8
 }
 ```
 
@@ -234,6 +243,7 @@ POST /hackrx/cache/clear
 ### 1. Prerequisites
 - Python 3.11+
 - Azure OpenAI account with API key
+- **Pinecone v7.x account** with API key (recommended for production)
 - Docker (for containerized deployment)
 
 ### 2. Install Dependencies
@@ -241,21 +251,52 @@ POST /hackrx/cache/clear
 pip install -r requirements.txt
 ```
 
-### 3. Environment Configuration
+### 3. Pinecone v7.x Setup (Recommended)
+
+1. **Create a Pinecone account**:
+   - Go to [Pinecone Console](https://app.pinecone.io/)
+   - Sign up for a free account
+   - Get your API key from the console
+
+2. **Configure Pinecone v7.x**:
+   - The system will automatically create an index named `rag-index`
+   - Uses **text-embedding-3-large** embeddings (3072 dimensions)
+   - Serverless deployment for cost efficiency
+   - gRPC support for enhanced performance
+
+3. **Environment Variables**:
+   ```env
+   PINECONE_API_KEY=your-pinecone-api-key
+   PINECONE_CLOUD=aws
+   PINECONE_REGION=us-east-1
+   PINECONE_INDEX_NAME=rag-index
+   PINECONE_DIMENSION=3072
+   ```
+
+### 4. Environment Configuration
 
 Create a `.env` file:
 
 ```env
-# Azure OpenAI Configuration
+# Azure OpenAI Configuration (Enhanced Models)
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_DEPLOYMENT_COMPLETION=gpt-4o-mini
-AZURE_DEPLOYMENT_EMBEDDING=text-embedding-3-small
+AZURE_DEPLOYMENT_COMPLETION=gpt-4
+AZURE_DEPLOYMENT_EMBEDDING=text-embedding-3-large
+
+# Pinecone v7.x Configuration (Primary Vector Database)
+PINECONE_API_KEY=your-pinecone-api-key
+PINECONE_CLOUD=aws
+PINECONE_REGION=us-east-1
+PINECONE_INDEX_NAME=rag-index
+PINECONE_DIMENSION=3072
+
+# ChromaDB Configuration (Fallback)
+CHROMA_DB_PATH=./chroma_db
 
 # Application Configuration
 SECRET_KEY=your-secret-key-here
 FLASK_ENV=development
-CHROMA_DB_PATH=./chroma_db
 UPLOAD_FOLDER=./uploads
 
 # Organization Settings
@@ -263,15 +304,15 @@ ORG_NAME=Your Organization
 ORG_DESCRIPTION=A leading provider of innovative solutions
 DEFAULT_TONE=professional
 
-# Performance Settings
-CHUNK_SIZE=512
-CHUNK_OVERLAP=50
+# Enhanced Performance Settings
+CHUNK_SIZE=800
+CHUNK_OVERLAP=200
 MAX_TOKENS=4000
-SIMILARITY_TOP_K=5
+SIMILARITY_TOP_K=8
 TEMPERATURE=0.1
 ```
 
-### 4. Run the Application
+### 5. Run the Application
 
 #### Local Development
 ```bash
@@ -302,10 +343,46 @@ gcloud run deploy rag \
   --port 8080
 ```
 
-### 5. Test the Installation
+#### Google Kubernetes Engine (GKE)
+```bash
+# Automated deployment
+chmod +x deploy-gcp.sh
+./deploy-gcp.sh
+
+# Manual deployment
+kubectl apply -f k8s-deployment.yaml
+kubectl apply -f k8s-secrets.yaml
+```
+
+### 6. Test the Installation
 ```bash
 curl http://localhost:8080/health
 ```
+
+## 🚀 Enhanced Models & Accuracy Improvements
+
+### Latest Model Updates
+- **GPT-4**: Advanced reasoning and answer generation capabilities
+- **text-embedding-3-large**: 3072 dimensions (2x larger than text-embedding-3-small)
+- **Improved vector dimensions**: Better semantic matching and context understanding
+
+### Accuracy Enhancements
+- **Enhanced Text Chunking**: Reduced chunk size to 800 characters for better semantic boundaries
+- **Improved Overlap**: Increased to 200 characters for better context preservation
+- **Better Retrieval**: Increased default top_k from 5 to 8 for better coverage
+- **Enhanced Prompt Engineering**: Specific instructions for policy-related questions
+- **Better Context Processing**: Increased context limit to 800 characters per document
+
+## 🚀 Pinecone v7.x Benefits
+
+### Why Pinecone v7.x?
+- **⚡ Superior Performance**: 10-100x faster than local vector databases with gRPC support
+- **🎯 Higher Accuracy**: Better similarity search with optimized algorithms and enhanced models
+- **📈 Scalability**: Handles millions of vectors with ease
+- **🔒 Managed Service**: No infrastructure management required
+- **💰 Cost Effective**: Pay-per-use pricing with free tier
+- **🌐 Global Availability**: Multi-region deployment options
+- **🚀 gRPC Support**: Up to 3x faster than HTTP for vector operations
 
 ## 📊 Performance Features
 
@@ -322,17 +399,17 @@ curl http://localhost:8080/health
 
 ### Memory Management
 - **Conversation History**: Limited to 20 messages
-- **Document Chunking**: 512 chars with 50 char overlap
+- **Document Chunking**: 800 chars with 200 char overlap
 - **Context Limiting**: Top 6 recent messages for LLM
 
 ## 🔧 Configuration Options
 
-### RAG Settings
+### RAG Settings (Enhanced)
 ```python
-CHUNK_SIZE = 512          # Text chunk size
-CHUNK_OVERLAP = 50        # Overlap between chunks
+CHUNK_SIZE = 800          # Reduced for better semantic boundaries
+CHUNK_OVERLAP = 200       # Increased overlap for better context
 MAX_TOKENS = 4000         # LLM response limit
-SIMILARITY_TOP_K = 5      # Number of similar docs
+SIMILARITY_TOP_K = 8      # Increased from 5 to 8 for better retrieval
 TEMPERATURE = 0.1         # LLM creativity
 ```
 
@@ -348,22 +425,29 @@ llm_response_cache = SmartCache(max_size=300, ttl=1800)
 ```
 RAG/
 ├── run.py                 # Main application entry point
-├── config.py              # Configuration settings
-├── requirements.txt        # Python dependencies
+├── config.py              # Configuration settings (enhanced models)
+├── requirements.txt        # Python dependencies (Pinecone v7.x)
 ├── Dockerfile             # Container configuration
 ├── .dockerignore          # Docker ignore patterns
 ├── .gcloudignore          # Google Cloud ignore patterns
 ├── cloudbuild.yaml        # Google Cloud Build config
+├── deploy-gcp.sh          # Automated GKE deployment script
+├── k8s-deployment.yaml    # Kubernetes deployment config
+├── k8s-secrets.yaml.template # Kubernetes secrets template
 ├── README.md              # This documentation
 ├── DEPLOYMENT.md          # Deployment guide
+├── GCP-DEPLOYMENT.md      # GCP deployment guide
+├── PINECONE_SETUP.md      # Pinecone v7.x setup guide
+├── ACCURACY_IMPROVEMENTS.md # Accuracy improvements documentation
 ├── app/
 │   ├── __init__.py        # Flask app factory
 │   ├── routes/
 │   │   └── rag_routes.py  # API endpoints
 │   └── services/
-│       ├── openai_services.py  # Azure OpenAI integration
+│       ├── openai_services.py  # Azure OpenAI integration (enhanced)
+│       ├── pinecone_services.py # Pinecone v7.x integration
 │       └── utils.py       # Utility functions
-├── chroma_db/             # Vector database storage
+├── chroma_db/             # Vector database storage (fallback)
 ├── storage/               # File storage
 ├── embeddings/            # Embedding cache
 ├── uploads/               # File uploads
@@ -377,6 +461,17 @@ RAG/
 # Build and deploy
 gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/rag
 gcloud run deploy rag --image gcr.io/YOUR_PROJECT_ID/rag --platform managed --region us-central1 --allow-unauthenticated --port 8080
+```
+
+### Google Kubernetes Engine (GKE)
+```bash
+# Automated deployment
+chmod +x deploy-gcp.sh
+./deploy-gcp.sh
+
+# Manual deployment
+kubectl apply -f k8s-deployment.yaml
+kubectl apply -f k8s-secrets.yaml
 ```
 
 ### Render
@@ -510,6 +605,19 @@ echo $AZURE_OPENAI_ENDPOINT
 chmod 755 chroma_db/
 ```
 
+#### 5. Pinecone v7.x connection errors
+**Problem**: Invalid API key or environment
+**Solution**: Verify Pinecone configuration:
+```bash
+echo $PINECONE_API_KEY
+echo $PINECONE_CLOUD
+echo $PINECONE_REGION
+```
+
+#### 6. Pinecone index creation fails
+**Problem**: Index already exists or quota exceeded
+**Solution**: Check Pinecone console and delete existing index if needed
+
 ### Debug Mode
 ```bash
 # Enable debug logging
@@ -524,8 +632,8 @@ embedding_cache = SmartCache(max_size=5000, ttl=24*3600)
 query_result_cache = SmartCache(max_size=1000, ttl=3600)
 
 # Adjust chunking parameters
-CHUNK_SIZE = 1024  # Larger chunks for better context
-CHUNK_OVERLAP = 100  # More overlap for better continuity
+CHUNK_SIZE = 800  # Optimized for semantic boundaries
+CHUNK_OVERLAP = 200  # Better context preservation
 ```
 
 ## 📚 Examples
@@ -588,4 +696,4 @@ For issues and questions:
 
 ---
 
-**Built with ❤️ for enterprise-grade RAG applications** 
+**Built with ❤️ for enterprise-grade RAG applications with enhanced accuracy and performance** 

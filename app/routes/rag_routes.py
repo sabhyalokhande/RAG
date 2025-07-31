@@ -4,6 +4,7 @@ Advanced Production-Ready RAG Routes
 - ChromaDB for vector storage
 - Azure OpenAI integration
 - Multi-user support with conversation history
+- Enhanced accuracy with improved chunking and retrieval
 """
 
 import os
@@ -30,6 +31,12 @@ from pypdf import PdfReader
 # Vector database
 import chromadb
 from chromadb.config import Settings
+try:
+    from app.services.pinecone_services import pinecone_service
+    PINECONE_AVAILABLE = True
+except ImportError:
+    PINECONE_AVAILABLE = False
+    pinecone_service = None
 
 # Azure OpenAI
 import openai
@@ -43,9 +50,9 @@ from app.services.openai_services import (
     get_embeddings_optimized, query_vector_db_fast, generate_answer_fast
 )
 from app.services.utils import (
-    clean_text, extract_text_from_file, chunk_text
+    clean_text, extract_text_from_file, chunk_text_advanced
 )
-
+from config import Config
 
 # Configure logging
 logging.basicConfig(
@@ -61,15 +68,20 @@ logger = logging.getLogger(__name__)
 # Create blueprint
 rag_routes = Blueprint('rag_routes', __name__)
 
-# Initialize ChromaDB with optimized settings
-chroma_client = chromadb.PersistentClient(
-    path=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
-    settings=Settings(
-        anonymized_telemetry=False,
-        allow_reset=True,
-        persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db")
+# Initialize ChromaDB with optimized settings (fallback)
+try:
+    chroma_client = chromadb.PersistentClient(
+        path=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
+        settings=Settings(
+            anonymized_telemetry=False,
+            allow_reset=True,
+            persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db")
+        )
     )
-)
+    logger.info("ChromaDB initialized as fallback")
+except Exception as e:
+    logger.warning(f"ChromaDB initialization failed: {e}")
+    chroma_client = None
 
 # Create a thread pool for CPU-bound tasks
 executor = ThreadPoolExecutor(max_workers=8)
@@ -227,13 +239,21 @@ def list_files(collection_name):
 
 # Delete entire collection
 @rag_routes.route('/api/collections/<collection_name>', methods=['DELETE'])
-def delete_collection(collection_name):
+async def delete_collection(collection_name):
     """Delete the entire collection"""
     try:
-        chroma_client.delete_collection(collection_name)
+        if PINECONE_AVAILABLE and pinecone_service:
+            result = await pinecone_service.delete_collection(collection_name)
+            deleted_count = result.get('deleted_count', 0)
+        else:
+            # Fallback to ChromaDB
+            chroma_client.delete_collection(collection_name)
+            deleted_count = 0
+        
         return jsonify({
             "deleted": collection_name,
-            "message": "Collection and all its files removed"
+            "message": "Collection and all its files removed",
+            "deleted_count": deleted_count
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -250,7 +270,7 @@ async def query():
         
         query_text = data['query']
         collection_name = data['collection_name']
-        top_k = data.get('top_k', 5)
+        top_k = data.get('top_k', 8)  # Increased default from 5 to 8
         
         # Query the vector database
         results = await query_vector_db(query_text, collection_name, top_k, chroma_client)
@@ -278,7 +298,7 @@ async def query():
 
 @rag_routes.route('/api/generate-answer', methods=['POST'])
 async def generate():
-    """Generate an answer based on context and history API endpoint with performance optimizations."""
+    """Generate an answer based on context and history API endpoint with enhanced accuracy."""
     try:
         start_time = datetime.now()
         data = await request.get_json()
@@ -294,7 +314,7 @@ async def generate():
         # Optional parameters
         org_info = data.get('org_info', None)
         tone = data.get('tone', None)
-        top_k = data.get('top_k', 5)
+        top_k = data.get('top_k', 8)  # Increased default from 5 to 8
         
         # Performance info
         include_performance_info = data.get('include_performance_info', False)
@@ -368,27 +388,29 @@ async def generate():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @rag_routes.route('/api/collections', methods=['GET'])
-def list_collections():
+async def list_collections():
     """List all collections in the vector database."""
     try:
-        collections = chroma_client.list_collections()
-        collection_names = [collection.name for collection in collections]
+        if PINECONE_AVAILABLE and pinecone_service:
+            collections = await pinecone_service.list_collections()
+        else:
+            # Fallback to ChromaDB
+            collections = chroma_client.list_collections()
+            collections = [collection.name for collection in collections]
         
         return jsonify({
             "status": "success",
-            "collections": collection_names
+            "collections": collections
         })
     
     except Exception as e:
         logger.error(f"Error listing collections: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500 
 
-
-
-# HackRX specific endpoint
+# HackRX specific endpoint with enhanced accuracy
 @rag_routes.route('/hackrx/run', methods=['POST'])
 async def hackrx_run():
-    """Optimized HackRX API endpoint with parallel processing."""
+    """Optimized HackRX API endpoint with enhanced accuracy and parallel processing."""
     try:
         start_time = time.time()
         
@@ -428,11 +450,21 @@ async def hackrx_run():
         logger.info(f"Processing document from URL: {documents_url}")
         
         # Download the PDF from the URL
-        response = requests.get(documents_url)
-        if response.status_code != 200:
-            return jsonify({"error": f"Failed to download document: {response.status_code}"}), 400
-        
-        # Process the document and store in ChromaDB
+        logger.info(f"Downloading document from URL: {documents_url}")
+        try:
+            response = requests.get(documents_url, timeout=30)
+            logger.info(f"Download response status: {response.status_code}")
+            logger.info(f"Download response headers: {dict(response.headers)}")
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to download document: HTTP {response.status_code}")
+                return jsonify({"error": f"Failed to download document: {response.status_code}"}), 400
+            
+            logger.info(f"Successfully downloaded {len(response.content)} bytes")
+            
+        except Exception as download_error:
+            logger.error(f"Error downloading document: {download_error}")
+            return jsonify({"error": f"Failed to download document: {str(download_error)}"}), 400
         
         # Create a file-like object for processing
         class FileWrapper:
@@ -440,58 +472,134 @@ async def hackrx_run():
                 self.content = content
                 self.filename = filename
                 self.read_called = False
+                self.position = 0
             
-            def read(self):
+            def read(self, size=None):
+                """Read method that accepts size parameter for PyPDF2 compatibility."""
                 if not self.read_called:
                     self.read_called = True
-                    return self.content
+                    if size is None:
+                        return self.content
+                    else:
+                        result = self.content[:size]
+                        self.content = self.content[size:]
+                        return result
                 return b''
+            
+            def seek(self, offset, whence=0):
+                """Implement seek method for PyPDF2 compatibility."""
+                if whence == 0:  # SEEK_SET
+                    self.position = offset
+                elif whence == 1:  # SEEK_CUR
+                    self.position += offset
+                elif whence == 2:  # SEEK_END
+                    self.position = len(self.content) + offset
+                return self.position
+            
+            def tell(self):
+                """Implement tell method for PyPDF2 compatibility."""
+                return self.position
         
         file_obj = FileWrapper(response.content, "document.pdf")
         
         # Step 1: Upload and process document (create embeddings)
         document_start = time.time()
+        print("\n" + "="*80)
+        print("📄 DOCUMENT PROCESSING")
+        print("="*80)
+        print(f"🔗 Downloading from: {documents_url}")
+        
         try:
             # Process and store document in ChromaDB
             result = await process_and_store_document(file_obj, collection_name, chroma_client)
             if result.get('status') != 'success':
+                print(f"❌ Document processing failed: {result.get('message', 'Unknown error')}")
                 return jsonify({"error": f"Failed to process document: {result.get('message', 'Unknown error')}"}), 500
             
             document_time = time.time() - document_start
+            processing_mode = result.get('processing_mode', 'medium')
+            text_length = result.get('text_length', 0)
+            page_count = result.get('page_count', 0)
+            
+            print(f"✅ Document processed successfully!")
+            print(f"📊 Chunks added: {result.get('chunks_added', 0)}")
+            print(f"📄 Processing mode: {processing_mode.upper()}")
+            print(f"📏 Document size: {text_length:,} characters, {page_count} pages")
+            print(f"⏱️  Processing time: {document_time:.2f}s")
             logger.info(f"Document processed successfully: {result.get('chunks_added', 0)} chunks added in {document_time:.2f}s")
         except Exception as e:
+            print(f"❌ Error processing document: {str(e)}")
             logger.error(f"Error processing document: {str(e)}")
             return jsonify({"error": f"Failed to process document: {str(e)}"}), 500
         
-        # Step 2: Process questions in parallel
+        # Step 2: Process questions with dynamic configuration
         questions_start = time.time()
+        
+        # Get organization info and tone
+        org_info = {
+            'name': Config.ORG_NAME,
+            'description': Config.ORG_DESCRIPTION
+        }
+        tone = Config.DEFAULT_TONE
+        
         async def process_question_parallel(question):
+            """Process a single question with dynamic configuration."""
             try:
-                # Use optimized functions for faster processing
-                relevant_docs = await query_vector_db_fast(question, collection_name, top_k=3, chroma_client=chroma_client)
-                answer = await generate_answer_fast(question, relevant_docs, None)  # Pass None for conversation_history
+                # Use dynamic top_k based on processing mode
+                if processing_mode == 'small':
+                    top_k = Config.SMALL_DOC_TOP_K
+                elif processing_mode == 'large':
+                    top_k = Config.LARGE_DOC_TOP_K
+                else:
+                    top_k = Config.MEDIUM_DOC_TOP_K
+                
+                # Query vector database with dynamic configuration
+                relevant_docs = await query_vector_db(question, collection_name, top_k=top_k, chroma_client=chroma_client, processing_mode=processing_mode)
+                
+                # Generate answer with dynamic configuration
+                answer = await generate_answer(question, relevant_docs, [], org_info, tone)
                 return answer
             except Exception as e:
-                logger.error(f"Error processing question '{question}': {str(e)}")
+                logger.error(f"Error processing question: {str(e)}")
                 return f"Error processing question: {str(e)}"
         
         # Process all questions in parallel
         tasks = [process_question_parallel(question) for question in questions]
         answers = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Handle any exceptions
+        # Handle any exceptions and print Q&A
         final_answers = []
+        print("\n" + "="*80)
+        print("📋 QUESTIONS AND ANSWERS")
+        print("="*80)
+        
         for i, result in enumerate(answers):
             if isinstance(result, Exception):
                 logger.error(f"Error processing question {i}: {str(result)}")
-                final_answers.append(f"Error processing question: {str(result)}")
+                answer = f"Error processing question: {str(result)}"
+                final_answers.append(answer)
+                print(f"\n❌ Q{i+1}: {questions[i]}")
+                print(f"❌ A{i+1}: {answer}")
             else:
                 final_answers.append(result)
+                print(f"\n✅ Q{i+1}: {questions[i]}")
+                print(f"✅ A{i+1}: {result}")
         
         questions_time = time.time() - questions_start
         total_time = time.time() - start_time
         
-        logger.info(f"Questions processed in {questions_time:.2f}s, Total time: {total_time:.2f}s")
+        print("\n" + "="*80)
+        print("📊 PERFORMANCE SUMMARY")
+        print("="*80)
+        print(f"📄 Document Processing Time: {document_time:.2f}s")
+        print(f"❓ Questions Processing Time: {questions_time:.2f}s")
+        print(f"⏱️  Total Time: {total_time:.2f}s")
+        print(f"📝 Questions Count: {len(questions)}")
+        print(f"📄 Processing Mode: {processing_mode.upper()}")
+        print(f"📏 Document Size: {text_length:,} characters, {page_count} pages")
+        print(f"🎯 Target Time: {Config.TARGET_PROCESSING_TIME}s")
+        print(f"⚡ Performance: {'✅ ON TARGET' if total_time <= Config.TARGET_PROCESSING_TIME else '⚠️  SLOW'}")
+        print("="*80)
         
         # Prepare result
         result = {
@@ -555,95 +663,4 @@ def clear_cache():
         })
     except Exception as e:
         logger.error(f"Error clearing cache: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-# Test endpoint for debugging
-@rag_routes.route('/hackrx/test', methods=['POST'])
-async def hackrx_test():
-    """Test endpoint for debugging document download."""
-    try:
-        data = await request.get_json()
-        documents_url = data.get('documents')
-        
-        # Download the PDF from the URL
-        response = requests.get(documents_url)
-        if response.status_code != 200:
-            return jsonify({"error": f"Failed to download document: {response.status_code}"}), 400
-        
-        # Try to extract text
-        from io import BytesIO
-        file_obj = BytesIO(response.content)
-        file_obj.name = "document.pdf"
-        
-        try:
-            # Create a file-like object with filename attribute
-            class FileWrapper:
-                def __init__(self, content, filename):
-                    self.content = content
-                    self.filename = filename
-                    self.read_called = False
-                
-                def read(self):
-                    if not self.read_called:
-                        self.read_called = True
-                        return self.content
-                    return b''
-            
-            file_wrapper = FileWrapper(response.content, "document.pdf")
-            text = extract_text_from_file(file_wrapper)
-            return jsonify({
-                "status": "success",
-                "text_length": len(text),
-                "text_preview": text[:500] + "..." if len(text) > 500 else text
-            })
-        except Exception as e:
-            return jsonify({
-                "error": f"Failed to extract text: {str(e)}"
-            }), 500
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Test endpoint for processing
-@rag_routes.route('/hackrx/test-process', methods=['POST'])
-async def hackrx_test_process():
-    """Test endpoint for debugging document processing."""
-    try:
-        data = await request.get_json()
-        documents_url = data.get('documents')
-        
-        # Download the PDF from the URL
-        response = requests.get(documents_url)
-        if response.status_code != 200:
-            return jsonify({"error": f"Failed to download document: {response.status_code}"}), 400
-        
-        # Create a file-like object for processing
-        class FileWrapper:
-            def __init__(self, content, filename):
-                self.content = content
-                self.filename = filename
-                self.read_called = False
-            
-            def read(self):
-                if not self.read_called:
-                    self.read_called = True
-                    return self.content
-                return b''
-        
-        file_obj = FileWrapper(response.content, "document.pdf")
-        
-        # Process and store the document using sync wrapper
-        collection_name = "hackrx_test"
-        try:
-            process_result = run_async(process_and_store_document(file_obj, collection_name, chroma_client))
-            return jsonify({
-                "status": "success",
-                "process_result": process_result
-            })
-        except Exception as e:
-            return jsonify({
-                "error": f"Failed to process document: {str(e)}"
-            }), 500
-    
-    except Exception as e:
         return jsonify({"error": str(e)}), 500 
