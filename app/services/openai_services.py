@@ -266,7 +266,7 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         for doc in relevant_docs['documents'][0]:
             context_parts.append(f"{doc}")
         
-        context_text = "\n\n".join(context_parts)
+        context_text = "\n".join(context_parts)
         
         # FAST INTELLIGENT REASONING prompt
         system_prompt = f"""You are an AI assistant for {org_name}, {org_description}.
@@ -317,7 +317,7 @@ Context Information:
 
 Question: {query}
 
-Please provide a comprehensive and reasoned answer based on the context above. Use intelligent reasoning to understand the document content and provide answers that demonstrate deep comprehension. If the context doesn't contain the answer, clearly state this. However, if you find ANY relevant information, analyze it thoroughly and provide reasoned conclusions. DO NOT add any document references or "Additional context" lines to your response."""
+Please provide a comprehensive and accurate answer based on the context above. If the context doesn't contain the answer, clearly state this. However, if you find ANY relevant information, include it in your response. Be extremely thorough in your analysis."""
         
         return system_prompt
         
