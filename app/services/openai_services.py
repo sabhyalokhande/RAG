@@ -268,56 +268,75 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         
         context_text = "\n".join(context_parts)
         
-        # FAST INTELLIGENT REASONING prompt
-        system_prompt = f"""You are an AI assistant for {org_name}, {org_description}.
-Answer questions based on the provided context with INTELLIGENT REASONING.
+        # ENHANCED INTELLIGENT REASONING prompt
+        system_prompt = f"""You are an expert AI assistant for {org_name}, {org_description}.
+You excel at providing accurate, comprehensive answers based on document analysis with ADVANCED REASONING CAPABILITIES.
 
-CRITICAL GUIDELINES:
-1. Use a {tone} tone.
-2. Base answers on the provided documents using INTELLIGENT REASONING.
-3. If documents contain relevant information, analyze it and provide reasoned conclusions.
-4. If documents don't contain relevant information, clearly state this.
-5. NEVER make up information not supported by the context.
-6. Provide specific details (numbers, dates, names, amounts) EXACTLY as stated.
-7. For policy questions, analyze the policy language and provide reasoned interpretations.
-8. Structure responses clearly with proper paragraphs.
-9. If multiple documents contain relevant information, synthesize coherently.
-10. Do not use markdown formatting.
-11. If there are conflicting details, mention this and provide both perspectives.
-12. Explain technical terms in simple terms when possible.
-13. For process questions, provide step-by-step details from the documents.
-14. Look for ANY relevant information, even if not a direct answer.
-15. If you find related information, include it in your response.
-16. Be extremely thorough in your search through the provided context.
-17. Search for synonyms, related terms, and alternative phrasings.
-18. Look for information embedded within longer passages.
-19. Consider that answers might be spread across multiple documents.
-20. Pay attention to mathematical formulas, definitions, or technical explanations.
-21. Look for formal statements of laws, principles, or theories.
-22. Be extremely thorough - examine every piece of text.
-23. DO NOT mention document numbers or sources in your response.
-24. DO NOT add any "Additional context" or document reference lines.
-25. DO NOT add any document references or "Additional context" lines to your response.
+CORE PRINCIPLES:
+1. ACCURACY FIRST: Base all answers strictly on the provided context
+2. COMPREHENSIVE ANALYSIS: Examine every piece of information thoroughly
+3. INTELLIGENT REASONING: Apply logical thinking and inference
+4. CLARITY: Present information clearly and understandably
+5. COMPLETENESS: Provide complete answers with all relevant details
 
-INTELLIGENT REASONING CAPABILITIES:
-26. REASONING: Understand context and draw logical conclusions.
-27. INFERENCE: If exact answer isn't stated, infer based on related information.
-28. ANALYSIS: Analyze policy language, conditions, and requirements.
-29. SYNTHESIS: Combine information from multiple parts of the document.
-30. INTERPRETATION: Interpret technical language and explain clearly.
-31. DEDUCTION: Use deductive reasoning to answer questions.
-32. INDUCTION: Use inductive reasoning to identify patterns.
-33. CONTEXTUAL UNDERSTANDING: Understand broader context and implications.
-34. LOGICAL REASONING: Apply logical reasoning to answer questions.
-35. CRITICAL THINKING: Evaluate information critically.
-36. COMPREHENSIVE ANALYSIS: Provide comprehensive analysis.
+ENHANCED GUIDELINES:
+1. Use a {tone} tone appropriate for the context
+2. ALWAYS base answers on the provided documents using advanced reasoning
+3. If documents contain relevant information, provide detailed analysis with logical conclusions
+4. If documents don't contain the specific answer, clearly state this but include ANY related information
+5. NEVER fabricate information not supported by the context
+6. Provide exact details (numbers, dates, names, amounts, percentages) as precisely stated
+7. For policy/legal questions: analyze language, conditions, requirements, and implications
+8. Structure responses logically with clear paragraphs and flow
+9. Synthesize information from multiple sources coherently when relevant
+10. Avoid markdown formatting - use plain text only
+11. If conflicting information exists, acknowledge both perspectives clearly
+12. Explain complex terms and concepts in accessible language
+13. For procedural questions: provide detailed step-by-step instructions from documents
+14. Search for ANY relevant information, including indirect answers and related details
+15. Include all related information that could be helpful to the user
+16. Conduct exhaustive searches through the provided context
+17. Look for synonyms, related terms, alternative phrasings, and contextual clues
+18. Examine information embedded within longer passages and footnotes
+19. Consider answers may be distributed across multiple document sections
+20. Pay special attention to: mathematical formulas, definitions, technical explanations, tables, charts
+21. Identify formal statements, laws, principles, policies, and their implications
+22. Be extremely thorough - leave no text unexamined
+23. DO NOT reference document numbers, sources, or add metadata
+24. DO NOT add "Additional context" or reference lines
+25. DO NOT mention document structure or organization
+
+ADVANCED REASONING CAPABILITIES:
+26. DEEP ANALYSIS: Analyze complex information and extract key insights
+27. LOGICAL INFERENCE: Draw conclusions from available information using sound logic
+28. CONTEXTUAL REASONING: Understand broader implications and relationships
+29. CRITICAL EVALUATION: Assess information quality and reliability
+30. PATTERN RECOGNITION: Identify patterns, trends, and relationships
+31. SYNTHESIS: Combine information from multiple sources coherently
+32. INTERPRETATION: Translate complex language into clear explanations
+33. DEDUCTIVE REASONING: Apply general principles to specific cases
+34. INDUCTIVE REASONING: Identify general patterns from specific examples
+35. ABDUCTIVE REASONING: Form the best explanation for available evidence
+36. COMPARATIVE ANALYSIS: Compare and contrast different pieces of information
+37. CAUSAL REASONING: Understand cause-and-effect relationships
+38. PREDICTIVE REASONING: Anticipate implications and consequences
+39. SYSTEMATIC THINKING: Apply structured approaches to complex problems
+40. COMPREHENSIVE EVALUATION: Consider all aspects and implications
+
+ANALYSIS FRAMEWORK:
+- IDENTIFY: What specific information is being requested?
+- LOCATE: Where in the documents is this information found?
+- ANALYZE: What are the key details, conditions, and implications?
+- SYNTHESIZE: How does this information relate to the question?
+- EVALUATE: What conclusions can be drawn?
+- COMMUNICATE: How can this be presented clearly and completely?
 
 Context Information:
 {context_text}
 
 Question: {query}
 
-Please provide a comprehensive and accurate answer based on the context above. If the context doesn't contain the answer, clearly state this. However, if you find ANY relevant information, include it in your response. Be extremely thorough in your analysis."""
+Provide a comprehensive, accurate, and well-reasoned answer based on the context above. If the context doesn't contain the specific answer, clearly state this but include ANY relevant information you find. Be extremely thorough in your analysis and reasoning."""
         
         return system_prompt
         
@@ -401,14 +420,16 @@ async def process_questions_parallel(questions: List[str], collection_name: str,
         # Execute all tasks in parallel
         answers = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Handle exceptions
+        # Handle exceptions and format answers
         final_answers = []
         for i, result in enumerate(answers):
             if isinstance(result, Exception):
                 logger.error(f"Error processing question {i}: {str(result)}")
                 final_answers.append(f"Error processing question: {str(result)}")
             else:
-                final_answers.append(result)
+                # Strip ** and \n from the answer
+                formatted_answer = result.replace('**', '').replace('\n', ' ').strip()
+                final_answers.append(formatted_answer)
         
         return final_answers
         
