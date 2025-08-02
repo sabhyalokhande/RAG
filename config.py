@@ -11,19 +11,19 @@ class Config:
     # CORE SETTINGS - OPTIMIZED FOR SPEED
     # ============================================================================
     
-    # Document Processing - Optimized for speed
-    CHUNK_SIZE = 2000  # Reduced from 3000 for faster processing
-    CHUNK_OVERLAP = 200  # Reduced from 300
-    MAX_CHUNKS_PER_DOCUMENT = 100  # Limit chunks for speed
+    # Document Processing - MAXIMUM ACCURACY SETTINGS
+    CHUNK_SIZE = 1200  # Smaller chunks for maximum precision
+    CHUNK_OVERLAP = 400  # Maximum overlap for context preservation
+    MAX_CHUNKS_PER_DOCUMENT = 200  # Maximum chunks for comprehensive coverage
     
-    # Vector Search - Optimized for speed
-    SIMILARITY_TOP_K = 25  # Reduced from 50 for faster retrieval
-    SIMILARITY_THRESHOLD = 0.7  # Increased threshold for better precision
+    # Vector Search - MAXIMUM ACCURACY SETTINGS
+    SIMILARITY_TOP_K = 50  # Maximum retrieval for comprehensive coverage
+    SIMILARITY_THRESHOLD = 0.5  # Very low threshold for maximum retrieval
     
-    # AI Model Settings - Optimized for speed
-    TEMPERATURE = 0.1  # Low temperature for consistent answers
-    MAX_TOKENS = 2000  # Reduced from 4000 for faster generation
-    MAX_PROCESSING_TIME = 60  # Target: 60 seconds total
+    # AI Model Settings - MAXIMUM ACCURACY SETTINGS
+    TEMPERATURE = 0.01  # Ultra-low temperature for maximum consistency
+    MAX_TOKENS = 4000  # Maximum tokens for detailed answers
+    MAX_PROCESSING_TIME = 120  # Maximum time for accuracy
     
     # ============================================================================
     # PARALLEL PROCESSING OPTIMIZATION
@@ -65,15 +65,15 @@ class Config:
     # ACCURACY PRESERVATION SETTINGS
     # ============================================================================
     
-    # Quality Thresholds - Kept lenient for accuracy
-    MIN_CHUNK_QUALITY_SCORE = 0.1  # Very lenient for maximum information
-    ANSWER_CONFIDENCE_THRESHOLD = 0.3  # Very lenient for accuracy
-    MIN_CHUNK_LENGTH = 3  # Very short chunks allowed
+    # Quality Thresholds - Optimized for accuracy
+    MIN_CHUNK_QUALITY_SCORE = 0.05  # Even more lenient for maximum information
+    ANSWER_CONFIDENCE_THRESHOLD = 0.2  # More lenient for accuracy
+    MIN_CHUNK_LENGTH = 2  # Allow very short chunks for maximum coverage
     MIN_MEANINGFUL_CHARS = 1  # Very lenient
     
-    # Context Enhancement - Preserved for accuracy
+    # Context Enhancement - Enhanced for accuracy
     ENABLE_CONTEXT_ENHANCEMENT = True
-    CONTEXT_WINDOW_SIZE = 300  # Reduced from 400 for speed
+    CONTEXT_WINDOW_SIZE = 500  # Increased for better context
     ENABLE_SEMANTIC_BOUNDARIES = True
     ENABLE_KEYWORD_PRIORITIZATION = True
     

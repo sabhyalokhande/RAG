@@ -221,18 +221,30 @@ def is_high_quality_chunk(chunk: str) -> bool:
     return True
 
 def enhance_context_for_accuracy(chunk: str, context_window: int = None) -> str:
-    """Fast context enhancement for speed optimization."""
+    """MAXIMUM ACCURACY context processing."""
     if not chunk:
         return chunk
     
     context_window = context_window or Config.CONTEXT_WINDOW_SIZE
     
-    # Simple context enhancement for speed
-    enhanced_chunk = chunk
+    # Maximum accuracy context processing
+    enhanced_chunk = chunk.strip()
     
-    # Add basic context markers
+    # Remove excessive whitespace
+    import re
+    enhanced_chunk = re.sub(r'\s+', ' ', enhanced_chunk)
+    
+    # Add detailed context markers for maximum accuracy
     if len(enhanced_chunk) < context_window:
-        enhanced_chunk = f"Context: {enhanced_chunk}"
+        enhanced_chunk = f"ACCURATE DOCUMENT CONTEXT: {enhanced_chunk}"
+    
+    # Ensure proper sentence boundaries
+    if not enhanced_chunk.endswith(('.', '!', '?')):
+        enhanced_chunk += '.'
+    
+    # Add accuracy markers for important information
+    if any(char.isdigit() for char in enhanced_chunk):
+        enhanced_chunk = f"IMPORTANT DETAILS: {enhanced_chunk}"
     
     return enhanced_chunk
 
@@ -257,37 +269,60 @@ def find_semantic_boundaries(text: str) -> List[int]:
     return sorted(boundaries)
 
 def prioritize_chunks_by_relevance(chunks: List[str], query: str) -> List[str]:
-    """Fast chunk prioritization for speed optimization."""
+    """MAXIMUM ACCURACY chunk prioritization."""
     if not chunks or not query:
         return chunks
     
-    # Simple keyword matching for speed
+    # Maximum accuracy keyword matching
     query_lower = query.lower()
     query_words = set(query_lower.split())
     
-    def calculate_relevance(chunk):
+    def calculate_maximum_accuracy_score(chunk):
         chunk_lower = chunk.lower()
         chunk_words = set(chunk_lower.split())
         
-        # Simple word overlap
-        overlap = len(query_words.intersection(chunk_words))
+        # Maximum accuracy scoring
+        score = 0
         
-        # Exact match bonus
+        # Exact word matches (highest priority)
+        exact_matches = query_words.intersection(chunk_words)
+        score += len(exact_matches) * 15  # Increased weight
+        
+        # Exact phrase matches (highest priority)
         if query_lower in chunk_lower:
-            overlap += 5
+            score += 50  # Maximum bonus for exact phrase
         
-        # Partial match bonus
+        # Individual word matches
         for word in query_words:
             if word in chunk_lower:
-                overlap += 2
+                score += 8  # Increased weight
         
-        return overlap
+        # Semantic similarity bonus
+        related_terms = get_related_terms()
+        for term, synonyms in related_terms.items():
+            if term in query_lower or any(syn in query_lower for syn in synonyms):
+                if any(term in chunk_lower or any(syn in chunk_lower for syn in synonyms)):
+                    score += 5  # Increased weight
+        
+        # Length bonus for comprehensive chunks
+        if len(chunk) > 150:  # Increased threshold
+            score += 3
+        
+        # Quality bonus for well-structured chunks
+        if chunk.count('.') > 2:  # Increased threshold
+            score += 2
+        
+        # Specific detail bonus
+        if any(char.isdigit() for char in chunk):
+            score += 2  # Bonus for chunks with numbers
+        
+        return score
     
-    # Sort by relevance
-    scored_chunks = [(chunk, calculate_relevance(chunk)) for chunk in chunks]
+    # Score and sort chunks
+    scored_chunks = [(chunk, calculate_maximum_accuracy_score(chunk)) for chunk in chunks]
     scored_chunks.sort(key=lambda x: x[1], reverse=True)
     
-    # Return top chunks
+    # Return maximum chunks for accuracy
     return [chunk for chunk, score in scored_chunks[:Config.SIMILARITY_TOP_K]]
 
 def get_related_terms() -> Dict[str, List[str]]:
@@ -307,6 +342,8 @@ def get_related_terms() -> Dict[str, List[str]]:
         'room': ['accommodation', 'boarding', 'nursing', 'hospital', 'stay'],
         'icu': ['intensive', 'care', 'unit', 'critical', 'emergency']
     }
+
+
 
 def truncate_text_for_embeddings(text: str, max_tokens: int = None) -> str:
     """Fast text truncation for embedding generation."""

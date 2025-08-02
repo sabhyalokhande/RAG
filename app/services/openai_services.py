@@ -261,25 +261,29 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         if not tone:
             tone = "professional"
         
-        # Fast context organization - NO DOCUMENT REFERENCES
+        # MAXIMUM ACCURACY context organization
         context_parts = []
-        for doc in relevant_docs['documents'][0]:
-            context_parts.append(f"{doc}")
+        for i, doc in enumerate(relevant_docs['documents'][0]):
+            # Maximum accuracy context formatting
+            cleaned_doc = doc.strip()
+            if cleaned_doc:
+                # Enhanced context with detailed sectioning
+                context_parts.append(f"=== DOCUMENT SECTION {i+1} ===\n{cleaned_doc}\n")
         
-        context_text = "\n".join(context_parts)
+        context_text = "\n\n".join(context_parts)
         
-        # FAST INTELLIGENT REASONING prompt
+        # MAXIMUM ACCURACY prompt
         system_prompt = f"""You are an AI assistant for {org_name}, {org_description}.
-Answer questions based on the provided context with INTELLIGENT REASONING.
+Your PRIMARY GOAL is to provide MAXIMUM ACCURACY answers based on the provided context.
 
-CRITICAL GUIDELINES:
+MAXIMUM ACCURACY REQUIREMENTS:
 1. Use a {tone} tone.
-2. Base answers on the provided documents using INTELLIGENT REASONING.
-3. If documents contain relevant information, analyze it and provide reasoned conclusions.
-4. If documents don't contain relevant information, clearly state this.
+2. Base answers EXCLUSIVELY on the provided documents - NO EXCEPTIONS.
+3. If documents contain relevant information, provide it EXACTLY as stated.
+4. If documents don't contain relevant information, clearly state "This information is not available in the provided context."
 5. NEVER make up information not supported by the context.
-6. Provide specific details (numbers, dates, names, amounts) EXACTLY as stated.
-7. For policy questions, analyze the policy language and provide reasoned interpretations.
+6. Provide specific details (numbers, dates, names, amounts) EXACTLY as stated in the documents.
+7. For policy questions, quote the exact policy language when possible.
 8. Structure responses clearly with proper paragraphs.
 9. If multiple documents contain relevant information, synthesize coherently.
 10. Do not use markdown formatting.
@@ -299,6 +303,23 @@ CRITICAL GUIDELINES:
 24. DO NOT add any "Additional context" or document reference lines.
 25. DO NOT add any document references or "Additional context" lines to your response.
 
+MAXIMUM ACCURACY TECHNIQUES:
+26. CROSS-REFERENCE: Check multiple parts of the context for consistency.
+27. DETAIL VERIFICATION: Verify specific numbers, dates, and names against the context.
+28. CONTEXT VALIDATION: Ensure all claims are directly supported by the provided context.
+29. COMPREHENSIVE SEARCH: Look through ALL provided context thoroughly.
+30. PRECISION FOCUS: Prioritize exact matches and specific details over general statements.
+31. LOGICAL REASONING: Apply deductive and inductive reasoning to draw accurate conclusions.
+32. EVIDENCE-BASED: Only make claims that have direct evidence in the context.
+33. THOROUGH ANALYSIS: Examine every piece of information in the context.
+34. ACCURATE SYNTHESIS: Combine information from multiple sources accurately.
+35. QUALITY CONTROL: Double-check your response against the provided context.
+36. EXACT QUOTATION: When possible, quote exact text from the context.
+37. VERIFICATION: Verify every claim against the provided context.
+38. COMPREHENSIVE COVERAGE: Ensure no relevant information is missed.
+39. PRECISION: Focus on exact details rather than general statements.
+40. VALIDATION: Cross-check information across multiple context sections.
+
 INTELLIGENT REASONING CAPABILITIES:
 26. REASONING: Understand context and draw logical conclusions.
 27. INFERENCE: If exact answer isn't stated, infer based on related information.
@@ -317,7 +338,9 @@ Context Information:
 
 Question: {query}
 
-Please provide a comprehensive and accurate answer based on the context above. If the context doesn't contain the answer, clearly state this. However, if you find ANY relevant information, include it in your response. Be extremely thorough in your analysis."""
+Please provide a comprehensive and accurate answer based on the context above. If the context doesn't contain the answer, clearly state this. However, if you find ANY relevant information, include it in your response. Be extremely thorough in your analysis.
+
+IMPORTANT: Remove all formatting characters like **, \n, and \ from your answer. Provide clean, plain text without any special formatting."""
         
         return system_prompt
         
@@ -369,10 +392,43 @@ async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_his
             )
             answer = response.choices[0].message.content
         
-        # Cache the answer
-        llm_response_cache[cache_key] = answer
+        # Enhanced cleanup and accuracy validation
+        import re
+        cleaned_answer = answer
         
-        return answer
+        # Remove literal \n strings
+        cleaned_answer = cleaned_answer.replace('\\n', ' ')
+        
+        # Remove ** characters
+        cleaned_answer = cleaned_answer.replace('**', '')
+        
+        # Remove any remaining backslashes
+        cleaned_answer = cleaned_answer.replace('\\', '')
+        
+        # Remove multiple spaces and normalize
+        cleaned_answer = re.sub(r'\s+', ' ', cleaned_answer)
+        
+        # Remove multiple newlines
+        cleaned_answer = re.sub(r'\n\s*\n', '\n', cleaned_answer)
+        
+        # Final cleanup
+        cleaned_answer = cleaned_answer.strip()
+        
+        # MAXIMUM ACCURACY validation
+        if len(cleaned_answer) < 20:
+            cleaned_answer = "Based on the provided context, I cannot provide a complete answer. The information requested is not available in the provided documents. Please provide more specific information or clarify your question."
+        
+        # Additional accuracy checks
+        if "not available" in query.lower() or "not found" in query.lower():
+            if len(cleaned_answer) < 50:
+                cleaned_answer = "The specific information you requested is not available in the provided context. Please check if your question is related to the documents provided."
+        
+
+        
+        # Cache the cleaned answer
+        llm_response_cache[cache_key] = cleaned_answer
+        
+        return cleaned_answer
         
     except Exception as e:
         logger.error(f"Error in fast answer generation: {e}")
