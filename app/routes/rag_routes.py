@@ -16,6 +16,7 @@ from io import BytesIO
 from typing import Dict, List, Optional, Any
 import time
 import hashlib
+import threading
 
 # Quart and async libraries
 from quart import Blueprint, request, jsonify
@@ -34,7 +35,8 @@ from chromadb.config import Settings
 # Import services
 from app.services.openai_services import (
     get_embeddings_parallel, process_and_store_document_fast, 
-    query_vector_db_fast, generate_answer_fast, process_questions_parallel
+    query_vector_db_fast, generate_answer_fast, process_questions_parallel,
+    process_questions_parallel_concise, process_questions_parallel_dynamic
 )
 from app.services.utils import (
     clean_text, extract_text_from_file, chunk_text_advanced
@@ -76,6 +78,30 @@ executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
 # Cache for HackRX endpoint results
 hackrx_cache = {}
 CACHE_TTL = Config.CACHE_TTL
+
+# Simple logging lock to prevent file conflicts
+log_lock = threading.Lock()
+
+def log_request_background(document_url: str, questions: List[str], answers: List[str]):
+    """Log request data to file in background without affecting speed."""
+    def write_log():
+        try:
+            with log_lock:
+                log_entry = {
+                    "timestamp": datetime.now().isoformat(),
+                    "document_url": document_url,
+                    "questions": questions,
+                    "answers": answers
+                }
+                
+                with open("request_logs.jsonl", "a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            # Silently fail to not affect performance
+            pass
+    
+    # Run in background thread to avoid blocking
+    threading.Thread(target=write_log, daemon=True).start()
 
 def generate_cache_key(documents_url: str, questions: List[str]) -> str:
     """Generate cache key for speed optimization."""
@@ -218,8 +244,8 @@ async def hackrx_run():
         print("="*80)
         print(f"📝 Processing {len(questions)} questions in parallel")
         
-        # Process all questions in parallel
-        answers = await process_questions_parallel(questions, collection_name, chroma_client)
+        # Process all questions in parallel with dynamic answers
+        answers = await process_questions_parallel_dynamic(questions, collection_name, chroma_client)
         
         questions_time = time.time() - questions_start
         total_time = time.time() - start_time
@@ -256,6 +282,9 @@ async def hackrx_run():
         
         # Cache the result
         cache_result(cache_key, result)
+        
+        # Log request data in background
+        log_request_background(documents_url, questions, answers)
         
         return jsonify(result)
     
@@ -301,6 +330,30 @@ def clear_cache():
         return jsonify({"status": "success", "message": "Cache cleared successfully"})
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@rag_routes.route('/hackrx/logs', methods=['GET'])
+def get_request_logs():
+    """Get recent request logs (last 50 entries)."""
+    try:
+        logs = []
+        if os.path.exists("request_logs.jsonl"):
+            with open("request_logs.jsonl", "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                # Get last 50 entries
+                recent_lines = lines[-50:] if len(lines) > 50 else lines
+                for line in recent_lines:
+                    try:
+                        logs.append(json.loads(line.strip()))
+                    except:
+                        continue
+        
+        return jsonify({
+            "total_logs": len(logs),
+            "logs": logs
+        })
+    except Exception as e:
+        logger.error(f"Error getting request logs: {e}")
         return jsonify({"error": str(e)}), 500
 
 def optimize_for_speed():

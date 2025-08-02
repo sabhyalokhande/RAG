@@ -11,14 +11,14 @@ class Config:
     # CORE SETTINGS - OPTIMIZED FOR SPEED
     # ============================================================================
     
-    # Document Processing - Optimized for speed
-    CHUNK_SIZE = 2000  # Reduced from 3000 for faster processing
-    CHUNK_OVERLAP = 200  # Reduced from 300
-    MAX_CHUNKS_PER_DOCUMENT = 100  # Limit chunks for speed
+    # Document Processing - Optimized for better recall
+    CHUNK_SIZE = 1200  # Reduced for better semantic boundaries
+    CHUNK_OVERLAP = 300  # Increased for better context preservation
+    MAX_CHUNKS_PER_DOCUMENT = 150  # Increased for better coverage
     
-    # Vector Search - Optimized for speed
-    SIMILARITY_TOP_K = 25  # Reduced from 50 for faster retrieval
-    SIMILARITY_THRESHOLD = 0.7  # Increased threshold for better precision
+    # Vector Search - Optimized for better recall
+    SIMILARITY_TOP_K = 35  # Increased for better retrieval coverage
+    SIMILARITY_THRESHOLD = 0.6  # Reduced for more inclusive retrieval
     
     # AI Model Settings - Optimized for speed
     TEMPERATURE = 0.1  # Low temperature for consistent answers
@@ -85,10 +85,10 @@ class Config:
     SMALL_DOC_THRESHOLD = 50000  # characters
     LARGE_DOC_THRESHOLD = 200000  # characters
     
-    # Processing Modes
-    SMALL_DOC_TOP_K = 15  # Reduced for speed
-    MEDIUM_DOC_TOP_K = 25  # Reduced for speed
-    LARGE_DOC_TOP_K = 35  # Reduced for speed
+    # Processing Modes - Enhanced for better recall
+    SMALL_DOC_TOP_K = 20  # Increased for better coverage
+    MEDIUM_DOC_TOP_K = 35  # Increased for better coverage
+    LARGE_DOC_TOP_K = 50  # Increased for better coverage
     
     # Time Targets
     TARGET_PROCESSING_TIME = 60  # 60 seconds target
