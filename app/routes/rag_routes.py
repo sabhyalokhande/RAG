@@ -221,36 +221,6 @@ async def hackrx_run():
         # Process all questions in parallel
         answers = await process_questions_parallel(questions, collection_name, chroma_client)
         
-        # Enhanced cleanup and accuracy validation
-        import re
-        cleaned_answers = []
-        for answer in answers:
-            cleaned_answer = answer
-            
-            # Remove literal \n strings
-            cleaned_answer = cleaned_answer.replace('\\n', ' ')
-            
-            # Remove ** characters
-            cleaned_answer = cleaned_answer.replace('**', '')
-            
-            # Remove any remaining backslashes
-            cleaned_answer = cleaned_answer.replace('\\', '')
-            
-            # Remove multiple spaces and normalize
-            cleaned_answer = re.sub(r'\s+', ' ', cleaned_answer)
-            
-            # Remove multiple newlines
-            cleaned_answer = re.sub(r'\n\s*\n', '\n', cleaned_answer)
-            
-            # Final cleanup
-            cleaned_answer = cleaned_answer.strip()
-            
-            # Accuracy validation - ensure answer is substantial
-            if len(cleaned_answer) < 10:
-                cleaned_answer = "Based on the provided context, I cannot provide a complete answer. Please provide more specific information or clarify your question."
-            
-            cleaned_answers.append(cleaned_answer)
-        
         questions_time = time.time() - questions_start
         total_time = time.time() - start_time
         
@@ -258,7 +228,7 @@ async def hackrx_run():
         print("📋 QUESTIONS AND ANSWERS")
         print("="*80)
         
-        for i, answer in enumerate(cleaned_answers):
+        for i, answer in enumerate(answers):
             print(f"\n✅ Q{i+1}: {questions[i]}")
             print(f"✅ A{i+1}: {answer[:200]}..." if len(answer) > 200 else f"✅ A{i+1}: {answer}")
         
@@ -275,7 +245,7 @@ async def hackrx_run():
         
         # Prepare result
         result = {
-            "answers": cleaned_answers,
+            "answers": answers,
             "performance": {
                 "document_processing_time": round(document_time, 2),
                 "questions_processing_time": round(questions_time, 2),
