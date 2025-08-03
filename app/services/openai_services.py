@@ -41,6 +41,10 @@ from app.services.utils import (
     enhance_context_for_accuracy, prioritize_chunks_by_relevance,
     truncate_text_for_embeddings, process_chunks_parallel
 )
+from app.services.document_prompts import (
+    construct_rag_prompt_with_document_detection,
+    get_document_specific_prompt
+)
 
 logger = logging.getLogger(__name__)
 
@@ -250,8 +254,8 @@ async def query_vector_db_fast(query: str, collection_name: str, top_k: int = No
         logger.error(f"Error in fast vector database query: {e}")
         return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
 
-def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, tone=None) -> str:
-    """Fast RAG prompt construction for speed optimization with strict document-based answers."""
+def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, tone=None, document_url: str = None) -> str:
+    """Fast RAG prompt construction combining document-specific, general, and intelligence specification prompts."""
     try:
         # Extract organization info
         org_name = org_info.get('name', 'Your Organization') if org_info else 'Your Organization'
@@ -261,7 +265,7 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         if not tone:
             tone = "professional"
         
-        # Fast context organization - NO DOCUMENT REFERENCES
+        # Fast context organization
         context_parts = []
         for doc in relevant_docs['documents'][0]:
             context_parts.append(f"{doc}")
@@ -278,8 +282,13 @@ Question: {query}
 
 Response: I cannot provide an answer to this question based on the available document content. The information you're asking about is not covered in the provided document. Please ask questions that are relevant to the content of this specific document."""
         
-        # ENHANCED INTELLIGENT REASONING prompt with contextual understanding
-        system_prompt = f"""You are an AI assistant for {org_name}, {org_description}.
+        # Get document-specific prompt if available
+        document_specific_prompt = None
+        if document_url:
+            document_specific_prompt = get_document_specific_prompt(document_url)
+        
+        # INTELLIGENCE SPECIFICATION from openai service
+        intelligence_specification = f"""You are an AI assistant for {org_name}, {org_description}.
 Analyze the document content intelligently and answer questions based on the provided context.
 
 CRITICAL GUIDELINES:
@@ -299,34 +308,48 @@ CRITICAL GUIDELINES:
 14. COMPREHENSIVE COVERAGE: If multiple aspects of a topic are covered, provide a complete picture.
 15. ACCURATE DETAILS: Provide specific details (numbers, dates, names, amounts) as stated in the document.
 16. CLEAR EXPLANATION: Explain complex concepts or procedures in simple terms when they appear in the document.
-17. STRUCTURED RESPONSES: Organize information logically with proper paragraphs.
-18. NO MARKDOWN: Do not use markdown formatting.
+17. SINGLE PARAGRAPH: Write your response in ONE SINGLE PARAGRAPH without any line breaks or paragraph divisions.
+18. NO MARKDOWN: Do not use any markdown formatting like **, ##, or any other formatting symbols.
 19. NO SOURCE REFERENCES: Do not mention document numbers or add reference lines.
 20. CONFLICT RESOLUTION: If there are conflicting details, mention both perspectives.
+21. NO LINE BREAKS: Do not use \n or any line breaks in your response.
+22. PLAIN TEXT: Write in plain text only, no formatting whatsoever.
+23. FLOWING PARAGRAPH: Make your response flow naturally as one continuous paragraph.
 
 INTELLIGENT REASONING APPROACH:
-21. DOCUMENT ANALYSIS: First, understand the document type and its primary purpose.
-22. CONTENT MAPPING: Identify key topics, sections, and information within the document.
-23. QUESTION CONTEXTUALIZATION: Determine if the question relates to the document's subject matter.
-24. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
-25. LOGICAL INFERENCE: Apply logical reasoning to connect information and draw conclusions.
-26. SYNTHESIS: Combine information from multiple parts to provide comprehensive answers.
-27. VALIDATION: Ensure all information comes from the document content.
-28. COMPLETENESS: Provide complete answers when information is available in the document.
+24. DOCUMENT ANALYSIS: First, understand the document type and its primary purpose.
+25. CONTENT MAPPING: Identify key topics, sections, and information within the document.
+26. QUESTION CONTEXTUALIZATION: Determine if the question relates to the document's subject matter.
+27. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
+28. LOGICAL INFERENCE: Apply logical reasoning to connect information and draw conclusions.
+29. SYNTHESIS: Combine information from multiple parts to provide comprehensive answers.
+30. VALIDATION: Ensure all information comes from the document content.
+31. COMPLETENESS: Provide complete answers when information is available in the document.
 
-REJECTION CRITERIA:
-- Only reject questions that are completely unrelated to the document's subject matter
-- Examples of questions to reject: asking about cooking recipes when the document is about insurance
-- Examples of questions to answer: any question related to the document's content, even if requiring inference
+INTELLIGENT QUESTION HANDLING:
+- For questions related to the document's subject matter but not directly addressed: Provide general knowledge answer and clarify it's not from the document
+- For completely unrelated questions: Reject appropriately
+- Examples of related questions to answer with general knowledge: asking about disc brakes when document is about motorcycles, asking about oil types when document is about vehicles
+- Examples of unrelated questions to reject: asking about JavaScript code when document is about vehicles, asking about cooking recipes when document is about insurance
 
-Document Content:
-{context_text}
-
-Question: {query}
-
-Please analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."""
+RESPONSE FORMAT REQUIREMENTS:
+- Write in ONE SINGLE PARAGRAPH only
+- No line breaks, no \n, no paragraph divisions
+- No markdown formatting like ** or ##
+- No bullet points or numbered lists
+- Plain text only with natural flowing sentences
+- Connect all information seamlessly in one paragraph
+- When providing general knowledge: Start with "While this document doesn't specifically address..." or similar clarification"""
         
-        return system_prompt
+        # Construct the combined prompt
+        if document_specific_prompt:
+            # Combine document-specific prompt with intelligence specification
+            combined_prompt = f"{document_specific_prompt}\n\n{intelligence_specification}\n\nDocument Information: {context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."
+        else:
+            # Use only intelligence specification (which includes general guidelines)
+            combined_prompt = f"{intelligence_specification}\n\nDocument Content:\n{context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."
+        
+        return combined_prompt
         
     except Exception as e:
         logger.error(f"Error constructing fast RAG prompt: {e}")
@@ -397,10 +420,11 @@ INTELLIGENT REASONING APPROACH:
 28. VALIDATION: Ensure all information comes from the document content.
 29. COMPLETENESS: Provide complete answers when information is available in the document.
 
-REJECTION CRITERIA:
-- Only reject questions that are completely unrelated to the document's subject matter
-- Examples of questions to reject: asking about cooking recipes when the document is about insurance
-- Examples of questions to answer: any question related to the document's content, even if requiring inference
+INTELLIGENT QUESTION HANDLING:
+- For questions related to the document's subject matter but not directly addressed: Provide general knowledge answer and clarify it's not from the document
+- For completely unrelated questions: Reject appropriately
+- Examples of related questions to answer with general knowledge: asking about disc brakes when document is about motorcycles, asking about oil types when document is about vehicles
+- Examples of unrelated questions to reject: asking about JavaScript code when document is about vehicles, asking about cooking recipes when document is about insurance
 
 Document Content:
 {context_text}
@@ -517,10 +541,11 @@ INTELLIGENT REASONING APPROACH:
 56. VALIDATION: Ensure all information comes from the document content.
 57. COMPLETENESS: Provide complete answers when information is available in the document.
 
-REJECTION CRITERIA:
-- Only reject questions that are completely unrelated to the document's subject matter
-- Examples of questions to reject: asking about cooking recipes when the document is about insurance
-- Examples of questions to answer: any question related to the document's content, even if requiring inference
+INTELLIGENT QUESTION HANDLING:
+- For questions related to the document's subject matter but not directly addressed: Provide general knowledge answer and clarify it's not from the document
+- For completely unrelated questions: Reject appropriately
+- Examples of related questions to answer with general knowledge: asking about disc brakes when document is about motorcycles, asking about oil types when document is about vehicles
+- Examples of unrelated questions to reject: asking about JavaScript code when document is about vehicles, asking about cooking recipes when document is about insurance
 
 Document Content:
 {context_text}
@@ -536,21 +561,21 @@ Please analyze the document content thoroughly and provide a comprehensive answe
         return f"Answer the following question based on the provided context:\n\nContext: {relevant_docs}\n\nQuestion: {query}\n\nAnswer:"
 
 @retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
-async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None) -> str:
-    """Fast answer generation with speed optimizations."""
+async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None, document_url: str = None) -> str:
+    """Fast answer generation with document-specific prompt detection."""
     if not async_client:
         raise Exception("Azure OpenAI client not initialized.")
     
     try:
         # Fast cache key generation
-        cache_key = f"{query}:{len(relevant_docs.get('documents', [[]])[0])}"
+        cache_key = f"{query}:{len(relevant_docs.get('documents', [[]])[0])}:{document_url or 'generic'}"
         cached_answer = llm_response_cache.get(cache_key)
         
         if cached_answer is not None:
             return cached_answer
         
-        # Fast prompt construction
-        system_prompt = construct_rag_prompt_fast(query, relevant_docs, org_info, tone)
+        # Fast prompt construction with document detection
+        system_prompt = construct_rag_prompt_fast(query, relevant_docs, org_info, tone, document_url)
         
         # Simple message structure for speed
         messages = [
@@ -694,8 +719,8 @@ async def generate_answer_dynamic(query: str, relevant_docs: Dict, conversation_
         logger.error(f"Error in dynamic answer generation: {e}")
         return f"Error generating answer: {str(e)}"
 
-async def process_questions_parallel(questions: List[str], collection_name: str, chroma_client=None, org_info=None, tone=None) -> List[str]:
-    """Process multiple questions in parallel for speed optimization."""
+async def process_questions_parallel(questions: List[str], collection_name: str, chroma_client=None, org_info=None, tone=None, document_url: str = None) -> List[str]:
+    """Process multiple questions in parallel for speed optimization with document-specific prompts."""
     try:
         # Process questions in parallel
         async def process_single_question(question):
@@ -703,8 +728,8 @@ async def process_questions_parallel(questions: List[str], collection_name: str,
                 # Fast vector search
                 relevant_docs = await query_vector_db_fast(question, collection_name, chroma_client=chroma_client)
                 
-                # Fast answer generation
-                answer = await generate_answer_fast(question, relevant_docs, org_info=org_info, tone=tone)
+                # Fast answer generation with document URL
+                answer = await generate_answer_fast(question, relevant_docs, org_info=org_info, tone=tone, document_url=document_url)
                 
                 return answer
             except Exception as e:

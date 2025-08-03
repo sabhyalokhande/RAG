@@ -244,8 +244,8 @@ async def hackrx_run():
         print("="*80)
         print(f"📝 Processing {len(questions)} questions in parallel")
         
-        # Process all questions in parallel with dynamic answers
-        answers = await process_questions_parallel_dynamic(questions, collection_name, chroma_client)
+        # Process all questions in parallel with document-specific prompts
+        answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url)
         
         questions_time = time.time() - questions_start
         total_time = time.time() - start_time
