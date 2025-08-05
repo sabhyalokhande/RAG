@@ -1,0 +1,120 @@
+2025-08-05 23:14:55,220 - app.services.pinecone_services - WARNING - PINECONE_API_KEY not set. Using ChromaDB fallback.
+2025-08-05 23:14:55,249 - app.services.utils - INFO - Speed optimizations applied
+2025-08-05 23:14:56,311 - app.services.openai_services - INFO - Azure OpenAI clients initialized successfully
+2025-08-05 23:14:56,312 - app.services.openai_services - INFO - Speed optimizations applied to OpenAI services
+2025-08-05 23:14:56,405 - chromadb.config - DEBUG - Starting component System
+2025-08-05 23:14:56,406 - chromadb.config - DEBUG - Starting component Posthog
+2025-08-05 23:14:56,464 - app.routes.rag_routes - INFO - ChromaDB initialized for speed optimization
+2025-08-05 23:14:56,466 - app.routes.rag_routes - INFO - Speed optimizations applied to routes
+2025-08-05 23:14:56,466 - __main__ - INFO - ================================================================================
+2025-08-05 23:14:56,466 - __main__ - INFO - STARTING IMAGE OCR TEST
+2025-08-05 23:14:56,467 - __main__ - INFO - ================================================================================
+2025-08-05 23:14:56,467 - __main__ - INFO - Image URL: https://hackrx.blob.core.windows.net/assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D
+2025-08-05 23:14:57,490 - app.services.utils - INFO - Starting OCR extraction from: https://hackrx.blob.core.windows.net/assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D
+2025-08-05 23:14:57,490 - app.services.utils - INFO - Downloading image from URL: https://hackrx.blob.core.windows.net/assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D
+2025-08-05 23:14:57,494 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): hackrx.blob.core.windows.net:443
+2025-08-05 23:14:57,645 - urllib3.connectionpool - DEBUG - https://hackrx.blob.core.windows.net:443 "GET /assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D HTTP/1.1" 200 7733
+2025-08-05 23:14:57,647 - app.services.utils - INFO - Image downloaded to temporary file: C:\Users\wacha\AppData\Local\Temp\tmphvob3rb7.jpg
+2025-08-05 23:14:57,728 - app.services.utils - INFO - Image opened successfully. Size: (273, 239), Mode: RGB
+2025-08-05 23:14:57,733 - app.services.utils - INFO - Starting OCR text extraction...
+2025-08-05 23:14:57,740 - pytesseract - DEBUG - ['tesseract', 'C:\\Users\\wacha\\AppData\\Local\\Temp\\tess_fca9j9e1_input.PNG', 'C:\\Users\\wacha\\AppData\\Local\\Temp\\tess_fca9j9e1', '--psm', '6', 'txt']
+2025-08-05 23:14:58,002 - app.services.utils - INFO - OCR extraction completed. Extracted 49 characters
+2025-08-05 23:14:58,002 - app.services.utils - INFO - Extracted text preview: Q9+5= 22
+100+23=10023
+22+100=2200
+65007+2=650072
+...
+2025-08-05 23:14:58,003 - __main__ - INFO - ================================================================================
+2025-08-05 23:14:58,003 - __main__ - INFO - OCR EXTRACTION RESULTS
+2025-08-05 23:14:58,003 - __main__ - INFO - ================================================================================
+2025-08-05 23:14:58,004 - __main__ - INFO - Extracted text length: 48
+2025-08-05 23:14:58,004 - __main__ - INFO - Extracted text content:
+2025-08-05 23:14:58,004 - __main__ - INFO - ----------------------------------------
+2025-08-05 23:14:58,004 - __main__ - INFO - Q9+5= 22
+100+23=10023
+22+100=2200
+65007+2=650072
+2025-08-05 23:14:58,004 - __main__ - INFO - ----------------------------------------
+2025-08-05 23:14:58,004 - __main__ - INFO - ================================================================================
+2025-08-05 23:14:58,005 - __main__ - INFO - PARSED MATHEMATICAL EXPRESSIONS
+2025-08-05 23:14:58,005 - __main__ - INFO - ================================================================================
+2025-08-05 23:14:58,005 - __main__ - INFO - Line 1: Q9+5= 22
+2025-08-05 23:14:58,005 - __main__ - INFO -   Non-mathematical expression: Q9+5= 22
+2025-08-05 23:14:58,006 - __main__ - INFO - Line 2: 100+23=10023
+2025-08-05 23:14:58,006 - __main__ - INFO -   Expression: 100+23
+2025-08-05 23:14:58,006 - __main__ - INFO -   Expected: 10023
+2025-08-05 23:14:58,006 - __main__ - INFO -   Calculated: 123
+2025-08-05 23:14:58,006 - __main__ - INFO -   Match: False
+2025-08-05 23:14:58,006 - __main__ - INFO - Line 3: 22+100=2200
+2025-08-05 23:14:58,007 - __main__ - INFO -   Expression: 22+100
+2025-08-05 23:14:58,007 - __main__ - INFO -   Expected: 2200
+2025-08-05 23:14:58,007 - __main__ - INFO -   Calculated: 122
+2025-08-05 23:14:58,007 - __main__ - INFO -   Match: False
+2025-08-05 23:14:58,007 - __main__ - INFO - Line 4: 65007+2=650072
+2025-08-05 23:14:58,007 - __main__ - INFO -   Expression: 65007+2
+2025-08-05 23:14:58,009 - __main__ - INFO -   Expected: 650072
+2025-08-05 23:14:58,009 - __main__ - INFO -   Calculated: 65009
+2025-08-05 23:14:58,009 - __main__ - INFO -   Match: False
+2025-08-05 23:14:58,009 - __main__ - INFO - ================================================================================
+2025-08-05 23:14:58,009 - __main__ - INFO - OCR TEST COMPLETED
+2025-08-05 23:14:58,009 - __main__ - INFO - ================================================================================
+2025-08-05 23:22:59,540 - app.services.pinecone_services - WARNING - PINECONE_API_KEY not set. Using ChromaDB fallback.
+2025-08-05 23:22:59,547 - app.services.utils - INFO - Speed optimizations applied
+2025-08-05 23:23:00,614 - app.services.openai_services - INFO - Azure OpenAI clients initialized successfully
+2025-08-05 23:23:00,616 - app.services.openai_services - INFO - Speed optimizations applied to OpenAI services
+2025-08-05 23:23:00,713 - chromadb.config - DEBUG - Starting component System
+2025-08-05 23:23:00,713 - chromadb.config - DEBUG - Starting component Posthog
+2025-08-05 23:23:00,779 - app.routes.rag_routes - INFO - ChromaDB initialized for speed optimization
+2025-08-05 23:23:00,780 - app.routes.rag_routes - INFO - Speed optimizations applied to routes
+2025-08-05 23:23:00,780 - __main__ - INFO - ================================================================================
+2025-08-05 23:23:00,781 - __main__ - INFO - STARTING IMAGE OCR TEST
+2025-08-05 23:23:00,781 - __main__ - INFO - ================================================================================
+2025-08-05 23:23:00,781 - __main__ - INFO - Image URL: https://hackrx.blob.core.windows.net/assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D
+2025-08-05 23:23:01,592 - app.services.utils - INFO - Starting OCR extraction from: https://hackrx.blob.core.windows.net/assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D
+2025-08-05 23:23:01,592 - app.services.utils - INFO - Downloading image from URL: https://hackrx.blob.core.windows.net/assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D
+2025-08-05 23:23:01,596 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): hackrx.blob.core.windows.net:443
+2025-08-05 23:23:01,678 - urllib3.connectionpool - DEBUG - https://hackrx.blob.core.windows.net:443 "GET /assets/Test%20/image.jpeg?sv=2023-01-03&spr=https&st=2025-08-04T19%3A29%3A01Z&se=2026-08-05T19%3A29%3A00Z&sr=b&sp=r&sig=YnJJThygjCT6%2FpNtY1aHJEZ%2F%2BqHoEB59TRGPSxJJBwo%3D HTTP/1.1" 200 7733
+2025-08-05 23:23:01,680 - app.services.utils - INFO - Image downloaded to temporary file: C:\Users\wacha\AppData\Local\Temp\tmpfpbj_hpz.jpg
+2025-08-05 23:23:01,715 - app.services.utils - INFO - Image opened successfully. Size: (273, 239), Mode: RGB
+2025-08-05 23:23:01,715 - app.services.utils - INFO - Starting OCR text extraction...
+2025-08-05 23:23:01,720 - pytesseract - DEBUG - ['tesseract', 'C:\\Users\\wacha\\AppData\\Local\\Temp\\tess_nd0_0prn_input.PNG', 'C:\\Users\\wacha\\AppData\\Local\\Temp\\tess_nd0_0prn', '--psm', '6', 'txt']
+2025-08-05 23:23:01,972 - app.services.utils - INFO - OCR extraction completed. Extracted 49 characters
+2025-08-05 23:23:01,972 - app.services.utils - INFO - Extracted text preview: Q9+5= 22
+100+23=10023
+22+100=2200
+65007+2=650072
+...
+2025-08-05 23:23:01,972 - __main__ - INFO - ================================================================================
+2025-08-05 23:23:01,973 - __main__ - INFO - OCR EXTRACTION RESULTS
+2025-08-05 23:23:01,973 - __main__ - INFO - ================================================================================
+2025-08-05 23:23:01,973 - __main__ - INFO - Extracted text length: 48
+2025-08-05 23:23:01,973 - __main__ - INFO - Extracted text content:
+2025-08-05 23:23:01,973 - __main__ - INFO - ----------------------------------------
+2025-08-05 23:23:01,973 - __main__ - INFO - Q9+5= 22
+100+23=10023
+22+100=2200
+65007+2=650072
+2025-08-05 23:23:01,973 - __main__ - INFO - ----------------------------------------
+2025-08-05 23:23:01,973 - __main__ - INFO - ================================================================================
+2025-08-05 23:23:01,973 - __main__ - INFO - PARSED MATHEMATICAL EXPRESSIONS
+2025-08-05 23:23:01,974 - __main__ - INFO - ================================================================================
+2025-08-05 23:23:01,974 - __main__ - INFO - Line 1: Q9+5= 22
+2025-08-05 23:23:01,974 - __main__ - INFO -   Non-mathematical expression: Q9+5= 22
+2025-08-05 23:23:01,974 - __main__ - INFO - Line 2: 100+23=10023
+2025-08-05 23:23:01,975 - __main__ - INFO -   Expression: 100+23
+2025-08-05 23:23:01,975 - __main__ - INFO -   Expected: 10023
+2025-08-05 23:23:01,975 - __main__ - INFO -   Calculated: 123
+2025-08-05 23:23:01,975 - __main__ - INFO -   Match: False
+2025-08-05 23:23:01,976 - __main__ - INFO - Line 3: 22+100=2200
+2025-08-05 23:23:01,977 - __main__ - INFO -   Expression: 22+100
+2025-08-05 23:23:01,977 - __main__ - INFO -   Expected: 2200
+2025-08-05 23:23:01,978 - __main__ - INFO -   Calculated: 122
+2025-08-05 23:23:01,978 - __main__ - INFO -   Match: False
+2025-08-05 23:23:01,978 - __main__ - INFO - Line 4: 65007+2=650072
+2025-08-05 23:23:01,978 - __main__ - INFO -   Expression: 65007+2
+2025-08-05 23:23:01,978 - __main__ - INFO -   Expected: 650072
+2025-08-05 23:23:01,979 - __main__ - INFO -   Calculated: 65009
+2025-08-05 23:23:01,979 - __main__ - INFO -   Match: False
+2025-08-05 23:23:01,979 - __main__ - INFO - ================================================================================
+2025-08-05 23:23:01,979 - __main__ - INFO - OCR TEST COMPLETED
+2025-08-05 23:23:01,979 - __main__ - INFO - ================================================================================

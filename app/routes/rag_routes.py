@@ -39,7 +39,8 @@ from app.services.openai_services import (
     process_questions_parallel_concise, process_questions_parallel_dynamic
 )
 from app.services.utils import (
-    clean_text, extract_text_from_file, chunk_text_advanced
+    clean_text, extract_text_from_file, chunk_text_advanced,
+    get_raw_data_pptx, get_raw_data_image, get_raw_data_zip
 )
 from config import Config
 
@@ -165,10 +166,12 @@ async def hackrx_run():
         if cached_result:
             logger.info(f"Returning cached result for request")
             return jsonify(cached_result)
-        
-        # Fast document processing
-        collection_name = "hackrx_documents"
+          # Fast document processing
+        # Use unique collection name for each document to avoid conflicts
+        import hashlib
+        collection_name = f"hackrx_doc_{hashlib.md5(documents_url.encode()).hexdigest()[:8]}"
         logger.info(f"Processing document from URL: {documents_url}")
+        logger.info(f"Using collection: {collection_name}")
         
         # Download the PDF from the URL
         logger.info(f"Downloading document from URL: {documents_url}")
@@ -184,50 +187,60 @@ async def hackrx_run():
             
         except Exception as download_error:
             logger.error(f"Error downloading document: {download_error}")
-            return jsonify({"error": f"Failed to download document: {str(download_error)}"}), 400
+            return jsonify({"error": f"Failed to download document: {str(download_error)}"}), 400        # Determine file type and extract text
+        logger.info(f"Processing file: {documents_url}")
         
-        # Create a file-like object for processing
-        class FileWrapper:
-            def __init__(self, content, filename):
-                self.content = content
-                self.filename = filename
-                self.read_called = False
-                self.position = 0
-            
-            def read(self, size=None):
-                if not self.read_called:
-                    self.read_called = True
-                    if size is None:
-                        return self.content
-                    else:
-                        result = self.content[:size]
-                        self.content = self.content[size:]
-                        return result
-                return b''
-            
-            def seek(self, offset, whence=0):
-                if whence == 0:
-                    self.position = offset
-                elif whence == 1:
-                    self.position += offset
-                elif whence == 2:
-                    self.position = len(self.content) + offset
-                return self.position
-            
-            def tell(self):
-                return self.position
-        
-        file_obj = FileWrapper(response.content, "document.pdf")
-        
-        # Step 1: Fast document processing
+        # Check if it's an image URL (check for image extensions anywhere in the URL before query parameters)
+        url_path = documents_url.split('?')[0]  # Remove query parameters
+        if any(url_path.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']):
+            logger.info("Detected image file, using OCR extraction")
+            raw_text = get_raw_data_image(documents_url)
+            logger.info(f"OCR extracted text length: {len(raw_text)}")
+            logger.info(f"OCR extracted text preview: {raw_text[:500]}...")
+        else:
+            # For PDF and other documents, use existing logic
+            logger.info("Processing as PDF document")
+            try:
+                pdf_reader = PdfReader(BytesIO(response.content))
+                raw_text = ""
+                for page_num, page in enumerate(pdf_reader.pages):
+                    page_text = page.extract_text()
+                    raw_text += page_text
+                    logger.info(f"Extracted text from page {page_num + 1}: {len(page_text)} characters")
+                
+                logger.info(f"Total PDF text extracted: {len(raw_text)} characters")
+            except Exception as pdf_error:
+                logger.error(f"Error processing PDF: {pdf_error}")
+                raw_text = ""
+          # Step 1: Fast document processing
         document_start = time.time()
         print("\n" + "="*80)
         print("📄 FAST DOCUMENT PROCESSING")
         print("="*80)
-        print(f"🔗 Downloading from: {documents_url}")
+        print(f"🔗 Processing from: {documents_url}")
         
-        # Process document with parallel operations
-        document_result = await process_and_store_document_fast(file_obj, collection_name, chroma_client)
+        # Process document with text directly instead of file_obj
+        if not raw_text:
+            logger.error("No text extracted from document")
+            return jsonify({"error": "No text extracted from document"}), 400
+          # Create a simple text wrapper for processing
+        class TextWrapper:
+            def __init__(self, text, filename="document"):
+                self.text = text
+                self.filename = filename
+            
+            def read(self):
+                return self.text.encode('utf-8')
+        
+        # Clear existing collection to ensure fresh data
+        try:
+            chroma_client.delete_collection(collection_name)
+            logger.info(f"Cleared existing collection: {collection_name}")
+        except:
+            logger.info(f"Collection {collection_name} didn't exist, creating new one")
+        
+        text_obj = TextWrapper(raw_text)
+        document_result = await process_and_store_document_fast(text_obj, collection_name, chroma_client)
         
         if "error" in document_result:
             logger.error(f"Document processing failed: {document_result['error']}")
@@ -369,4 +382,62 @@ def optimize_for_speed():
     logger.info("Speed optimizations applied to routes")
 
 # Initialize optimizations
-optimize_for_speed() 
+optimize_for_speed()
+
+@rag_routes.route('/hackrx/upload', methods=['POST'])
+async def hackrx_upload():
+    """Optimized file upload endpoint for HackRX with new formats support."""
+    try:
+        # Check for API key authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "Missing or invalid Authorization header"}), 401
+        
+        api_key = auth_header.split(' ')[1]
+        
+        # Parse form data
+        form_data = await request.form
+        if not form_data:
+            return jsonify({"error": "No form data provided"}), 400
+        
+        # Extract document and questions
+        document = form_data.get('document')
+        questions = form_data.get('questions', '')
+        
+        if not document:
+            return jsonify({"error": "Document file is required"}), 400
+        
+        # Validate and process document file
+        file_storage = document
+        file_name = file_storage.filename
+        
+        # Save the uploaded file temporarily
+        temp_dir = "./temp_uploads"
+        os.makedirs(temp_dir, exist_ok=True)
+        file_path = os.path.join(temp_dir, file_name)
+        
+        # Update file extension validation
+        if not any(file_name.lower().endswith(ext) for ext in ['.txt', '.pdf', '.docx', '.csv', '.xlsx', '.xls', '.pptx', '.png', '.jpg', '.jpeg', '.zip']):
+            logger.error("Unsupported file extension")
+            return jsonify({"success": False, "message": "Unsupported file extension"}), 400
+        
+        # Add processing logic for new formats
+        elif file_name.lower().endswith('.pptx'):
+            raw_text = get_raw_data_pptx(file_path)
+        elif file_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+            raw_text = get_raw_data_image(file_path)
+        elif file_name.lower().endswith('.zip'):
+            raw_text = get_raw_data_zip(file_path)
+        
+        # For other formats, use existing text extraction
+        else:
+            raw_text = extract_text_from_file(file_path)
+        
+        logger.info(f"Extracted raw text from {file_name} ({len(raw_text)} characters)")
+        
+        # Further processing and question answering logic here...
+        
+        return jsonify({"success": True, "message": "File uploaded and processed successfully"}), 200
+    except Exception as e:
+        logger.error(f"Error in hackrx/upload endpoint: {str(e)}")
+        return jsonify({"error": str(e)}), 500

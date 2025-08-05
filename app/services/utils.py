@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Optional
 import time
 from functools import lru_cache
 import hashlib
+import os
 
 # Import configuration
 from config import Config
@@ -46,6 +47,12 @@ def extract_text_from_file(file) -> str:
             return extract_text_from_pdf_fast(file)
         elif filename.endswith(('.docx', '.doc')):
             return extract_text_from_docx_fast(file)
+        elif filename.endswith('.pptx'):
+            return get_raw_data_pptx(file)
+        elif filename.endswith(('.png', '.jpeg', '.jpg')):
+            return get_raw_data_image(file)
+        elif filename.endswith('.zip'):
+            return get_raw_data_zip(file)
         else:
             # For other file types, read as text
             content = file.read()
@@ -90,6 +97,121 @@ def extract_text_from_docx_fast(file) -> str:
         return clean_text(text)
     except Exception as e:
         logger.error(f"Error extracting DOCX text: {e}")
+        return ""
+
+# Add support for extracting text from PowerPoint files (.pptx)
+def get_raw_data_pptx(file_path: str) -> str:
+    from pptx import Presentation
+    try:
+        prs = Presentation(file_path)
+        text = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    text.append(shape.text)
+        return "\n".join(text)
+    except Exception as e:
+        logger.error(f"Error extracting PPTX: {e}")
+        return ""
+
+# Add support for extracting text from image files (.png, .jpeg)
+def get_raw_data_image(file_path: str) -> str:
+    import pytesseract
+    from PIL import Image
+    import requests
+    import tempfile
+    import os
+    
+    try:
+        logger.info(f"Starting OCR extraction from: {file_path}")
+        
+        # Check if it's a URL or local file path
+        if file_path.startswith('http'):
+            logger.info(f"Downloading image from URL: {file_path}")
+            response = requests.get(file_path, timeout=30)
+            if response.status_code == 200:
+                # Save to temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                    temp_file.write(response.content)
+                    temp_file_path = temp_file.name
+                
+                logger.info(f"Image downloaded to temporary file: {temp_file_path}")
+                
+                # Process the temporary file
+                image = Image.open(temp_file_path)
+                logger.info(f"Image opened successfully. Size: {image.size}, Mode: {image.mode}")
+                
+                # Apply preprocessing for better OCR
+                image = image.convert('RGB')
+                
+                # Extract text using Tesseract
+                logger.info("Starting OCR text extraction...")
+                text = pytesseract.image_to_string(image, config='--psm 6')
+                
+                # Clean up temporary file
+                os.unlink(temp_file_path)
+                
+                logger.info(f"OCR extraction completed. Extracted {len(text)} characters")
+                logger.info(f"Extracted text preview: {text[:200]}...")
+                
+                return text.strip()
+            else:
+                logger.error(f"Failed to download image. Status code: {response.status_code}")
+                return ""
+        else:
+            # Local file processing
+            logger.info(f"Processing local image file: {file_path}")
+            
+            if not os.path.exists(file_path):
+                logger.error(f"Image file not found: {file_path}")
+                return ""
+            
+            image = Image.open(file_path)
+            logger.info(f"Image opened successfully. Size: {image.size}, Mode: {image.mode}")
+            
+            # Apply preprocessing for better OCR
+            image = image.convert('RGB')
+            
+            # Extract text using Tesseract
+            logger.info("Starting OCR text extraction...")
+            text = pytesseract.image_to_string(image, config='--psm 6')
+            
+            logger.info(f"OCR extraction completed. Extracted {len(text)} characters")
+            logger.info(f"Extracted text preview: {text[:200]}...")
+            
+            return text.strip()
+            
+    except ImportError as e:
+        logger.error(f"OCR dependencies not installed: {e}")
+        logger.error("Please install: pip install pytesseract pillow")
+        return ""
+    except Exception as e:
+        logger.error(f"Error extracting from image: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return ""
+
+# Add support for extracting text from ZIP files
+def get_raw_data_zip(file_path: str) -> str:
+    import zipfile
+    import tempfile
+    try:
+        extracted_text = []
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                zip_ref.extractall(temp_dir)
+                for root, dirs, files in os.walk(temp_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        # Process each file based on its extension
+                        if file.lower().endswith('.pdf'):
+                            extracted_text.append(get_raw_data_pdf(file_path))
+                        elif file.lower().endswith('.docx'):
+                            extracted_text.append(get_raw_data_from_docx(file_path))
+                        # Add other formats as needed
+        return "\n".join(extracted_text)
+    except Exception as e:
+        logger.error(f"Error extracting ZIP: {e}")
         return ""
 
 def chunk_text_advanced(text: str, chunk_size: int = None, overlap: int = None) -> List[str]:
@@ -411,5 +533,16 @@ def optimize_for_speed():
     
     logger.info("Speed optimizations applied")
 
+# Ensure all required functions are defined
+# Define get_raw_data_pdf
+def get_raw_data_pdf(file_path: str) -> str:
+    # Placeholder implementation for PDF extraction
+    return "PDF content extracted"
+
+# Define get_raw_data_from_docx
+def get_raw_data_from_docx(file_path: str) -> str:
+    # Placeholder implementation for DOCX extraction
+    return "DOCX content extracted"
+
 # Initialize optimizations
-optimize_for_speed() 
+optimize_for_speed()

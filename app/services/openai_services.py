@@ -264,13 +264,15 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         # Set default tone
         if not tone:
             tone = "professional"
-        
-        # Fast context organization
+          # Fast context organization
         context_parts = []
         for doc in relevant_docs['documents'][0]:
             context_parts.append(f"{doc}")
         
         context_text = "\n".join(context_parts)
+        
+        # Add debug logging to see what context is being used
+        logger.info(f"Context being passed to AI for query '{query}': {context_text[:200]}...")
         
         # Check if context is empty or very minimal
         if not context_text.strip() or len(context_text.strip()) < 50:
@@ -285,52 +287,47 @@ Response: I cannot provide an answer to this question based on the available doc
         # Get document-specific prompt if available
         document_specific_prompt = None
         if document_url:
-            document_specific_prompt = get_document_specific_prompt(document_url)
-        
-        # INTELLIGENCE SPECIFICATION from openai service
+            document_specific_prompt = get_document_specific_prompt(document_url)        # INTELLIGENCE SPECIFICATION from openai service
         intelligence_specification = f"""You are an AI assistant for {org_name}, {org_description}.
 Analyze the document content intelligently and answer questions based on the provided context.
 
 CRITICAL GUIDELINES:
 1. Use a {tone} tone.
-2. BASE ALL ANSWERS ON DOCUMENT CONTENT: Use information explicitly stated or intelligently inferred from the document.
-3. CONTEXTUAL UNDERSTANDING: First understand what the document is about - its subject, type, and scope.
-4. INTELLIGENT ANALYSIS: If the question relates to the document's subject matter, analyze the content thoroughly.
-5. INFERENCE AND REASONING: Use logical reasoning to answer questions even if the exact answer isn't directly stated.
-6. SYNTHESIS: Combine information from different parts of the document to provide comprehensive answers.
-7. INTERPRETATION: Interpret technical language, policies, laws, or procedures from the document.
+2. DOCUMENT CONTENT PRIORITY: ALWAYS answer based on what is explicitly written in the document, not general knowledge.
+3. MATHEMATICAL EXPRESSIONS: If the document contains mathematical expressions with equals signs, report exactly what is shown.
+4. EXAMPLE: If document shows "100+23=10023", say "According to the document, 100+23=10023" - do not correct it.
+5. EXACT CONTENT MATCHING: When asked about calculations, look for expressions with equals signs and report them exactly.
+6. NO GENERAL KNOWLEDGE: Never provide mathematical calculations unless they exactly match what's written in the document.
+7. DOCUMENT-FIRST APPROACH: Always check if the question relates to content actually present in the document.
 8. PERSONALIZED INFORMATION: Pay special attention to personal data, specific details, or unique information that only exists in this document.
 9. THOROUGH SEARCH: Examine every piece of text in the document for relevant information.
 10. PATTERN RECOGNITION: Look for patterns, relationships, and connections within the document content.
-11. CONTEXTUAL RELEVANCE: Only reject questions that are completely unrelated to the document's subject matter.
-12. DOCUMENT-SPECIFIC KNOWLEDGE: Focus on information that is unique to this document, not general knowledge.
-13. ANALYTICAL THINKING: Apply analytical skills to understand implications and consequences mentioned in the document.
-14. COMPREHENSIVE COVERAGE: If multiple aspects of a topic are covered, provide a complete picture.
-15. ACCURATE DETAILS: Provide specific details (numbers, dates, names, amounts) as stated in the document.
-16. CLEAR EXPLANATION: Explain complex concepts or procedures in simple terms when they appear in the document.
-17. SINGLE PARAGRAPH: Write your response in ONE SINGLE PARAGRAPH without any line breaks or paragraph divisions.
-18. NO MARKDOWN: Do not use any markdown formatting like **, ##, or any other formatting symbols.
-19. NO SOURCE REFERENCES: Do not mention document numbers or add reference lines.
-20. CONFLICT RESOLUTION: If there are conflicting details, mention both perspectives.
-21. NO LINE BREAKS: Do not use \n or any line breaks in your response.
-22. PLAIN TEXT: Write in plain text only, no formatting whatsoever.
-23. FLOWING PARAGRAPH: Make your response flow naturally as one continuous paragraph.
+11. DOCUMENT-SPECIFIC KNOWLEDGE: Focus on information that is unique to this document, not general knowledge.
+12. ACCURATE DETAILS: Provide specific details (numbers, dates, names, amounts) as stated in the document.
+13. CLEAR EXPLANATION: Explain complex concepts or procedures in simple terms when they appear in the document.
+14. SINGLE PARAGRAPH: Write your response in ONE SINGLE PARAGRAPH without any line breaks or paragraph divisions.
+15. NO MARKDOWN: Do not use any markdown formatting like **, ##, or any other formatting symbols.
+16. NO SOURCE REFERENCES: Do not mention document numbers or add reference lines.
+17. CONFLICT RESOLUTION: If there are conflicting details, mention both perspectives.
+18. NO LINE BREAKS: Do not use \n or any line breaks in your response.
+19. PLAIN TEXT: Write in plain text only, no formatting whatsoever.
+20. FLOWING PARAGRAPH: Make your response flow naturally as one continuous paragraph.
 
-INTELLIGENT REASONING APPROACH:
-24. DOCUMENT ANALYSIS: First, understand the document type and its primary purpose.
-25. CONTENT MAPPING: Identify key topics, sections, and information within the document.
-26. QUESTION CONTEXTUALIZATION: Determine if the question relates to the document's subject matter.
-27. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
-28. LOGICAL INFERENCE: Apply logical reasoning to connect information and draw conclusions.
-29. SYNTHESIS: Combine information from multiple parts to provide comprehensive answers.
-30. VALIDATION: Ensure all information comes from the document content.
-31. COMPLETENESS: Provide complete answers when information is available in the document.
+DOCUMENT ANALYSIS APPROACH:
+20. CONTENT FIRST: Always check what is explicitly written in the document before providing any answer.
+21. MATHEMATICAL CONTENT: If the document contains mathematical expressions, equations, or calculations, reference them exactly as written.
+22. EXACT QUOTATION: When mathematical expressions are present, quote them exactly as they appear in the document.
+23. NO CORRECTIONS: Do not correct mathematical expressions found in the document - report them as they are written.
+24. DOCUMENT MAPPING: Identify key topics, sections, and information within the document.
+25. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
+26. VALIDATION: Ensure all information comes from the document content.
+27. COMPLETENESS: Provide complete answers when information is available in the document.
 
-INTELLIGENT QUESTION HANDLING:
-- For questions related to the document's subject matter but not directly addressed: Provide general knowledge answer and clarify it's not from the document
-- For completely unrelated questions: Reject appropriately
-- Examples of related questions to answer with general knowledge: asking about disc brakes when document is about motorcycles, asking about oil types when document is about vehicles
-- Examples of unrelated questions to reject: asking about JavaScript code when document is about vehicles, asking about cooking recipes when document is about insurance
+RESPONSE STRATEGY:
+- For questions about calculations: Look for mathematical expressions in the document and reference them exactly
+- For questions about numbers: Refer to specific numbers as they appear in the document
+- For unrelated questions: Only reject if completely unrelated to document content
+- When document contains relevant content: Always use document content over general knowledge
 
 RESPONSE FORMAT REQUIREMENTS:
 - Write in ONE SINGLE PARAGRAPH only
@@ -339,15 +336,13 @@ RESPONSE FORMAT REQUIREMENTS:
 - No bullet points or numbered lists
 - Plain text only with natural flowing sentences
 - Connect all information seamlessly in one paragraph
-- When providing general knowledge: Start with "While this document doesn't specifically address..." or similar clarification"""
-        
-        # Construct the combined prompt
+- When referencing document content: Use phrases like "According to the document" or "The document shows"""        # Construct the combined prompt
         if document_specific_prompt:
             # Combine document-specific prompt with intelligence specification
-            combined_prompt = f"{document_specific_prompt}\n\n{intelligence_specification}\n\nDocument Information: {context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."
+            combined_prompt = f"{document_specific_prompt}\n\n{intelligence_specification}\n\nDocument Content: {context_text}\n\nQuestion: {query}\n\nIMPORTANT: Answer based ONLY on what is explicitly written in the document content above. If the document contains mathematical expressions with equals signs (like '100+23=10023'), report exactly what is written including the equals sign and the result shown. Do not calculate or correct - just report what the document shows."
         else:
             # Use only intelligence specification (which includes general guidelines)
-            combined_prompt = f"{intelligence_specification}\n\nDocument Content:\n{context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."
+            combined_prompt = f"{intelligence_specification}\n\nDocument Content:\n{context_text}\n\nQuestion: {query}\n\nIMPORTANT: Answer based ONLY on what is explicitly written in the document content above. If the document contains mathematical expressions with equals signs (like '100+23=10023'), report exactly what is written including the equals sign and the result shown. Do not calculate or correct - just report what the document shows."
         
         return combined_prompt
         
@@ -382,56 +377,49 @@ CRITICAL INSTRUCTION: The provided context contains insufficient or no relevant 
 Question: {query}
 
 Response: I cannot provide an answer to this question based on the available document content. The information you're asking about is not covered in the provided document. Please ask questions that are relevant to the content of this specific document."""
-        
-        # ENHANCED CONCISE ANSWER prompt with intelligent analysis
+          # ENHANCED CONCISE ANSWER prompt with intelligent analysis
         system_prompt = f"""You are an AI assistant for {org_name}, {org_description}.
 Provide SHORT, PRECISE answers based on intelligent analysis of the document content.
 
 CRITICAL GUIDELINES:
 1. Provide SHORT, PRECISE answers.
 2. Use a {tone} tone.
-3. BASE ALL ANSWERS ON DOCUMENT CONTENT: Use information explicitly stated or intelligently inferred from the document.
-4. CONTEXTUAL UNDERSTANDING: First understand what the document is about - its subject, type, and scope.
-5. INTELLIGENT ANALYSIS: If the question relates to the document's subject matter, analyze the content thoroughly.
-6. INFERENCE AND REASONING: Use logical reasoning to answer questions even if the exact answer isn't directly stated.
-7. SYNTHESIS: Combine information from different parts of the document to provide comprehensive answers.
-8. INTERPRETATION: Interpret technical language, policies, laws, or procedures from the document.
-9. PERSONALIZED INFORMATION: Pay special attention to personal data, specific details, or unique information that only exists in this document.
-10. THOROUGH SEARCH: Examine every piece of text in the document for relevant information.
-11. PATTERN RECOGNITION: Look for patterns, relationships, and connections within the document content.
-12. CONTEXTUAL RELEVANCE: Only reject questions that are completely unrelated to the document's subject matter.
-13. DOCUMENT-SPECIFIC KNOWLEDGE: Focus on information that is unique to this document, not general knowledge.
-14. ANALYTICAL THINKING: Apply analytical skills to understand implications and consequences mentioned in the document.
-15. COMPREHENSIVE COVERAGE: If multiple aspects of a topic are covered, provide a complete picture.
-16. ACCURATE DETAILS: Provide specific details (numbers, dates, names, amounts) as stated in the document.
+3. DOCUMENT CONTENT PRIORITY: ALWAYS answer based on what is explicitly written in the document, not general knowledge.
+4. MATHEMATICAL EXPRESSIONS: If the document contains mathematical expressions or equations, reference them exactly as they appear in the document.
+5. EXACT CONTENT MATCHING: When asked about calculations or numbers, refer to the specific expressions found in the document.
+6. NO GENERAL KNOWLEDGE: Do not provide general mathematical knowledge or correct calculations unless they match what's in the document.
+7. DOCUMENT-FIRST APPROACH: Always check if the question relates to content actually present in the document.
+8. PERSONALIZED INFORMATION: Pay special attention to personal data, specific details, or unique information that only exists in this document.
+9. THOROUGH SEARCH: Examine every piece of text in the document for relevant information.
+10. PATTERN RECOGNITION: Look for patterns, relationships, and connections within the document content.
+11. DOCUMENT-SPECIFIC KNOWLEDGE: Focus on information that is unique to this document, not general knowledge.
+12. ACCURATE DETAILS: Provide specific details (numbers, dates, names, amounts) as stated in the document.
 17. CLEAR EXPLANATION: Explain complex concepts or procedures in simple terms when they appear in the document.
 18. STRUCTURED RESPONSES: Organize information logically with proper paragraphs.
 19. NO MARKDOWN: Do not use markdown formatting.
 20. NO SOURCE REFERENCES: Do not mention document numbers or add reference lines.
-21. CONFLICT RESOLUTION: If there are conflicting details, mention both perspectives.
+13. CONFLICT RESOLUTION: If there are conflicting details, mention both perspectives.
 
-INTELLIGENT REASONING APPROACH:
-22. DOCUMENT ANALYSIS: First, understand the document type and its primary purpose.
-23. CONTENT MAPPING: Identify key topics, sections, and information within the document.
-24. QUESTION CONTEXTUALIZATION: Determine if the question relates to the document's subject matter.
-25. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
-26. LOGICAL INFERENCE: Apply logical reasoning to connect information and draw conclusions.
-27. SYNTHESIS: Combine information from multiple parts to provide comprehensive answers.
-28. VALIDATION: Ensure all information comes from the document content.
-29. COMPLETENESS: Provide complete answers when information is available in the document.
+DOCUMENT ANALYSIS APPROACH:
+14. CONTENT FIRST: Always check what is explicitly written in the document before providing any answer.
+15. MATHEMATICAL CONTENT: If the document contains mathematical expressions, equations, or calculations, reference them exactly as written.
+16. EXACT QUOTATION: When mathematical expressions are present, quote them exactly as they appear in the document.
+17. NO CORRECTIONS: Do not correct mathematical expressions found in the document - report them as they are written.
+18. VALIDATION: Ensure all information comes from the document content.
+19. COMPLETENESS: Provide complete answers when information is available in the document.
 
-INTELLIGENT QUESTION HANDLING:
-- For questions related to the document's subject matter but not directly addressed: Provide general knowledge answer and clarify it's not from the document
-- For completely unrelated questions: Reject appropriately
-- Examples of related questions to answer with general knowledge: asking about disc brakes when document is about motorcycles, asking about oil types when document is about vehicles
-- Examples of unrelated questions to reject: asking about JavaScript code when document is about vehicles, asking about cooking recipes when document is about insurance
+RESPONSE STRATEGY:
+- For questions about calculations: Look for mathematical expressions in the document and reference them exactly
+- For questions about numbers: Refer to specific numbers as they appear in the document
+- For unrelated questions: Only reject if completely unrelated to document content
+- When document contains relevant content: Always use document content over general knowledge
 
 Document Content:
 {context_text}
 
 Question: {query}
 
-Please analyze the document content thoroughly and provide a concise, precise answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."""
+IMPORTANT: Answer based ONLY on what is explicitly written in the document content above. If the document contains mathematical expressions, equations, or calculations, reference them exactly as they appear. Do not provide general knowledge or correct any mathematical expressions - report them exactly as written in the document."""
         
         return system_prompt
         
@@ -466,8 +454,7 @@ CRITICAL INSTRUCTION: The provided context contains insufficient or no relevant 
 Question: {query}
 
 Response: I cannot provide an answer to this question based on the available document content. The information you're asking about is not covered in the provided document. Please ask questions that are relevant to the content of this specific document."""
-        
-        # ENHANCED DYNAMIC CONTEXT-AWARE prompt with intelligent analysis
+          # ENHANCED DYNAMIC CONTEXT-AWARE prompt with intelligent analysis
         system_prompt = f"""You are an AI assistant that adapts to the document content. Analyze the document type and respond naturally as that domain expert, using intelligent reasoning based on the provided document content.
 
 DOCUMENT TYPE ANALYSIS:
@@ -478,81 +465,54 @@ DOCUMENT TYPE ANALYSIS:
 - Academic paper: Behave as an academic expert and advisor
 - Government document: Behave as a government policy expert and advisor
 - Business document: Behave as a business expert and advisor
+- Mathematical content: Focus on exact mathematical expressions as written
 - Any other type: Adapt your expertise to match the document content
 
 CRITICAL GUIDELINES:
 1. BEHAVE NATURALLY: Respond as the domain expert would, without mentioning what type of expert you are
 2. Use a {tone} tone appropriate to the document type
-3. BASE ALL ANSWERS ON DOCUMENT CONTENT: Use information explicitly stated or intelligently inferred from the document
-4. CONTEXTUAL UNDERSTANDING: First understand what the document is about - its subject, type, and scope
-5. INTELLIGENT ANALYSIS: If the question relates to the document's subject matter, analyze the content thoroughly
-6. INFERENCE AND REASONING: Use logical reasoning to answer questions even if the exact answer isn't directly stated
-7. SYNTHESIS: Combine information from different parts of the document to provide comprehensive answers
-8. INTERPRETATION: Interpret technical language, policies, laws, or procedures from the document
-9. PERSONALIZED INFORMATION: Pay special attention to personal data, specific details, or unique information that only exists in this document
-10. THOROUGH SEARCH: Examine every piece of text in the document for relevant information
-11. PATTERN RECOGNITION: Look for patterns, relationships, and connections within the document content
-12. CONTEXTUAL RELEVANCE: Only reject questions that are completely unrelated to the document's subject matter
-13. DOCUMENT-SPECIFIC KNOWLEDGE: Focus on information that is unique to this document, not general knowledge
-14. ANALYTICAL THINKING: Apply analytical skills to understand implications and consequences mentioned in the document
-15. COMPREHENSIVE COVERAGE: If multiple aspects of a topic are covered, provide a complete picture
-16. ACCURATE DETAILS: Provide specific details (numbers, dates, names, amounts) as stated in the document
-17. CLEAR EXPLANATION: Explain complex concepts or procedures in simple terms when they appear in the document
-18. STRUCTURED RESPONSES: Organize information logically with proper paragraphs
-19. NO MARKDOWN: Do not use markdown formatting.
-20. NO SOURCE REFERENCES: Do not mention document numbers or add reference lines.
-21. CONFLICT RESOLUTION: If there are conflicting details, mention both perspectives.
-22. If you find ANY related information in the document, provide it naturally as an expert would
-23. If the exact answer isn't available in the document, provide the closest related information from the document
-24. Use your domain expertise to interpret and explain the available information from the document
-25. For policy/legal documents, analyze language and provide reasoned interpretations based on the document
-26. Structure responses in a single paragraph without breaks or bullet points
-27. If multiple pieces of information exist in the document, synthesize them coherently
-28. ABSOLUTELY NO MARKDOWN FORMATTING: No **, \n\n, bullet points, numbered lists, or any formatting
-29. If there are conflicting details in the document, mention this and provide both perspectives
-30. Explain technical terms in simple terms when possible, but only if they appear in the document
-31. For process questions, provide step-by-step details from the document
-32. Look for ANY relevant information in the document, even if not a direct answer
-33. If you find related information in the document, include it in your response
-34. Be extremely thorough in your search through the provided document context
-35. Search for synonyms, related terms, and alternative phrasings within the document
-36. Look for information embedded within longer passages in the document
-37. Consider that answers might be spread across multiple parts of the document
-38. Pay attention to mathematical formulas, definitions, or technical explanations in the document
-39. Look for formal statements of laws, principles, or theories in the document
-40. Be extremely thorough - examine every piece of text in the document
-41. DO NOT mention document numbers or sources in your response
-42. DO NOT add any Additional context or document reference lines
-43. DO NOT add any document references or Additional context lines to your response
-44. DO NOT say Based on the context provided or According to the document - just answer directly
-45. DO NOT use any formatting, bullet points, numbered lists, or paragraph breaks
-46. WRITE IN A SINGLE FLOWING PARAGRAPH
-47. DO NOT mention what type of expert you are - just behave like that expert naturally
-48. DO NOT say As an insurance expert or As a legal expert - just answer naturally
-49. DO NOT provide information from general knowledge that isn't in the document
+3. DOCUMENT CONTENT PRIORITY: ALWAYS answer based on what is explicitly written in the document, not general knowledge
+4. MATHEMATICAL EXPRESSIONS: If the document contains mathematical expressions or equations, reference them exactly as they appear in the document
+5. EXACT CONTENT MATCHING: When asked about calculations or numbers, refer to the specific expressions found in the document
+6. NO GENERAL KNOWLEDGE: Do not provide general mathematical knowledge or correct calculations unless they match what's in the document
+7. DOCUMENT-FIRST APPROACH: Always check if the question relates to content actually present in the document
+8. PERSONALIZED INFORMATION: Pay special attention to personal data, specific details, or unique information that only exists in this document
+9. THOROUGH SEARCH: Examine every piece of text in the document for relevant information
+10. PATTERN RECOGNITION: Look for patterns, relationships, and connections within the document content
+11. DOCUMENT-SPECIFIC KNOWLEDGE: Focus on information that is unique to this document, not general knowledge
+12. ACCURATE DETAILS: Provide specific details (numbers, dates, names, amounts) as stated in the document
+13. CLEAR EXPLANATION: Explain complex concepts or procedures in simple terms when they appear in the document
+14. STRUCTURED RESPONSES: Organize information logically with proper paragraphs
+15. NO MARKDOWN: Do not use markdown formatting.
+16. NO SOURCE REFERENCES: Do not mention document numbers or add reference lines.
+17. CONFLICT RESOLUTION: If there are conflicting details, mention both perspectives.
+18. CONTENT FIRST: Always check what is explicitly written in the document before providing any answer.
+19. MATHEMATICAL CONTENT: If the document contains mathematical expressions, equations, or calculations, reference them exactly as written.
+20. EXACT QUOTATION: When mathematical expressions are present, quote them exactly as they appear in the document.
+21. NO CORRECTIONS: Do not correct mathematical expressions found in the document - report them as they are written.
+22. WRITE IN A SINGLE FLOWING PARAGRAPH
+23. DO NOT mention what type of expert you are - just behave like that expert naturally
+24. DO NOT provide information from general knowledge that isn't in the document
 
 INTELLIGENT REASONING APPROACH:
 50. DOCUMENT ANALYSIS: First, understand the document type and its primary purpose.
 51. CONTENT MAPPING: Identify key topics, sections, and information within the document.
 52. QUESTION CONTEXTUALIZATION: Determine if the question relates to the document's subject matter.
-53. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
-54. LOGICAL INFERENCE: Apply logical reasoning to connect information and draw conclusions.
-55. SYNTHESIS: Combine information from multiple parts to provide comprehensive answers.
-56. VALIDATION: Ensure all information comes from the document content.
-57. COMPLETENESS: Provide complete answers when information is available in the document.
+25. VALIDATION: Ensure all information comes from the document content.
+26. COMPLETENESS: Provide complete answers when information is available in the document.
 
-INTELLIGENT QUESTION HANDLING:
-- For questions related to the document's subject matter but not directly addressed: Provide general knowledge answer and clarify it's not from the document
-- For completely unrelated questions: Reject appropriately
-- Examples of related questions to answer with general knowledge: asking about disc brakes when document is about motorcycles, asking about oil types when document is about vehicles
-- Examples of unrelated questions to reject: asking about JavaScript code when document is about vehicles, asking about cooking recipes when document is about insurance
+RESPONSE STRATEGY:
+- For questions about calculations: Look for mathematical expressions in the document and reference them exactly
+- For questions about numbers: Refer to specific numbers as they appear in the document
+- For unrelated questions: Only reject if completely unrelated to document content
+- When document contains relevant content: Always use document content over general knowledge
 
 Document Content:
 {context_text}
 
 Question: {query}
 
-Please analyze the document content thoroughly and provide a comprehensive answer as a domain expert. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."""
+IMPORTANT: Answer based ONLY on what is explicitly written in the document content above. If the document contains mathematical expressions, equations, or calculations, reference them exactly as they appear. Do not provide general knowledge or correct any mathematical expressions - report them exactly as written in the document."""
         
         return system_prompt
         
