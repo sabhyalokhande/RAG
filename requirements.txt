@@ -13,3 +13,10 @@ aiohttp==3.9.5
 httpx>=0.27.0,<1.0.0
 packaging==24.0
 gunicorn==21.2.0
+
+# New dependencies for multi-format support
+python-pptx==0.6.21
+openpyxl==3.1.2
+pandas==2.1.4
+Pillow==10.1.0
+google-generativeai==0.8.3

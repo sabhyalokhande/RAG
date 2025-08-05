@@ -37,31 +37,64 @@ def clean_text(text: str) -> str:
     
     return text
 
+def clean_text_for_images(text: str) -> str:
+    """Specialized text cleaning for images that preserves mathematical expressions."""
+    if not text:
+        return ""
+    
+    # Preserve mathematical expressions by keeping +, =, -, *, /, (, ), [, ], {, }
+    # Also preserve numbers and basic punctuation
+    text = re.sub(r'\s+', ' ', text)  # Replace multiple spaces with single space
+    text = re.sub(r'[^\w\s\.\,\;\:\!\?\-\(\)\[\]\{\}\+\=\*\/]', '', text)  # Keep math operators
+    text = text.strip()
+    
+    return text
+
 def extract_text_from_file(file) -> str:
     """Fast text extraction with parallel processing."""
     try:
         filename = file.filename.lower()
         
+        print(f"\n🔍 DEBUG: File extraction called with filename: '{filename}'")
+        
         if filename.endswith('.pdf'):
+            print("🔍 DEBUG: Routing to PDF extraction")
             return extract_text_from_pdf_fast(file)
         elif filename.endswith(('.docx', '.doc')):
+            print("🔍 DEBUG: Routing to DOCX extraction")
             return extract_text_from_docx_fast(file)
+        elif filename.endswith('.pptx'):
+            print("🔍 DEBUG: Routing to PPTX extraction")
+            return extract_text_from_pptx_fast(file)
+        elif filename.endswith(('.xlsx', '.xls')):
+            print("🔍 DEBUG: Routing to Excel extraction")
+            return extract_text_from_excel_fast(file)
+        elif filename.endswith('.csv'):
+            print("🔍 DEBUG: Routing to CSV extraction")
+            return extract_text_from_csv_fast(file)
+        elif filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')):
+            print("🔍 DEBUG: Routing to IMAGE extraction")
+            return extract_text_from_image_fast(file)
         else:
+            print(f"🔍 DEBUG: Routing to TEXT extraction (unknown file type)")
             # For other file types, read as text
             content = file.read()
             return content.decode('utf-8', errors='ignore')
             
     except Exception as e:
         logger.error(f"Error extracting text from file: {e}")
+        print(f"❌ DEBUG: Error in extract_text_from_file: {e}")
         return ""
 
 def extract_text_from_pdf_fast(file) -> str:
     """Fast PDF text extraction with parallel processing."""
     try:
+        print("🔍 DEBUG: PDF extraction function called")
         from pypdf import PdfReader
         
         # Read PDF in memory
         pdf_reader = PdfReader(file)
+        print(f"🔍 DEBUG: PDF has {len(pdf_reader.pages)} pages")
         
         # Extract text from all pages in parallel
         def extract_page_text(page):
@@ -76,10 +109,12 @@ def extract_text_from_pdf_fast(file) -> str:
         
         # Combine all texts
         full_text = " ".join(texts)
+        print(f"🔍 DEBUG: PDF extracted text length: {len(full_text)}")
         return clean_text(full_text)
         
     except Exception as e:
         logger.error(f"Error extracting PDF text: {e}")
+        print(f"❌ DEBUG: Error in PDF extraction: {e}")
         return ""
 
 def extract_text_from_docx_fast(file) -> str:
@@ -413,3 +448,243 @@ def optimize_for_speed():
 
 # Initialize optimizations
 optimize_for_speed() 
+
+def extract_text_from_pptx_fast(file) -> str:
+    """Fast PowerPoint text extraction with slide structure preservation."""
+    try:
+        from pptx import Presentation
+        from io import BytesIO
+        
+        # Read PPTX in memory
+        prs = Presentation(BytesIO(file.read()))
+        
+        extracted_text = []
+        
+        for slide_num, slide in enumerate(prs.slides, 1):
+            slide_text = [f"SLIDE {slide_num}:"]
+            
+            # Extract text from shapes
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    slide_text.append(f"  {shape.text.strip()}")
+                
+                # Extract text from tables
+                if shape.has_table:
+                    table = shape.table
+                    for row in table.rows:
+                        row_text = []
+                        for cell in row.cells:
+                            if cell.text.strip():
+                                row_text.append(cell.text.strip())
+                        if row_text:
+                            slide_text.append(f"    {' | '.join(row_text)}")
+            
+            if len(slide_text) > 1:  # More than just slide number
+                extracted_text.extend(slide_text)
+                extracted_text.append("")  # Empty line between slides
+        
+        # Extract notes if enabled
+        if Config.PPT_EXTRACT_NOTES:
+            for slide_num, slide in enumerate(prs.slides, 1):
+                if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
+                    extracted_text.append(f"SLIDE {slide_num} NOTES:")
+                    extracted_text.append(f"  {slide.notes_slide.notes_text_frame.text.strip()}")
+                    extracted_text.append("")
+        
+        full_text = "\n".join(extracted_text)
+        return clean_text(full_text)
+        
+    except Exception as e:
+        logger.error(f"Error extracting PPTX text: {e}")
+        return ""
+
+def extract_text_from_excel_fast(file) -> str:
+    """Fast Excel text extraction with structured data preservation."""
+    try:
+        import pandas as pd
+        from io import BytesIO
+        
+        # Read Excel file
+        excel_file = BytesIO(file.read())
+        
+        # Read all sheets
+        excel_data = pd.read_excel(excel_file, sheet_name=None, header=None)
+        
+        extracted_text = []
+        
+        for sheet_name, df in excel_data.items():
+            if df.empty:
+                continue
+                
+            sheet_text = [f"SHEET: {sheet_name}"]
+            
+            # Limit rows and columns for performance
+            df = df.head(Config.MAX_EXCEL_ROWS)
+            df = df.iloc[:, :Config.MAX_EXCEL_COLUMNS]
+            
+            # Convert to structured text
+            for idx, row in df.iterrows():
+                row_values = []
+                for col_idx, value in enumerate(row):
+                    if pd.notna(value) and str(value).strip():
+                        # Add column header if available (first row)
+                        if idx == 0:
+                            row_values.append(f"Col{col_idx+1}:{str(value).strip()}")
+                        else:
+                            row_values.append(str(value).strip())
+                
+                if row_values:
+                    if idx == 0:
+                        sheet_text.append(f"  HEADERS: {' | '.join(row_values)}")
+                    else:
+                        sheet_text.append(f"  Row{idx+1}: {' | '.join(row_values)}")
+            
+            if len(sheet_text) > 1:  # More than just sheet name
+                extracted_text.extend(sheet_text)
+                extracted_text.append("")  # Empty line between sheets
+        
+        full_text = "\n".join(extracted_text)
+        return clean_text(full_text)
+        
+    except Exception as e:
+        logger.error(f"Error extracting Excel text: {e}")
+        return ""
+
+def extract_text_from_csv_fast(file) -> str:
+    """Fast CSV text extraction with structured data preservation."""
+    try:
+        import pandas as pd
+        from io import BytesIO
+        
+        # Read CSV file
+        csv_file = BytesIO(file.read())
+        
+        # Try different encodings
+        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        df = None
+        
+        for encoding in encodings:
+            try:
+                csv_file.seek(0)
+                df = pd.read_csv(csv_file, encoding=encoding, header=None)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df is None:
+            logger.error("Could not decode CSV file with any encoding")
+            return ""
+        
+        extracted_text = ["CSV DATA:"]
+        
+        # Limit rows and columns for performance
+        df = df.head(Config.MAX_EXCEL_ROWS)
+        df = df.iloc[:, :Config.MAX_EXCEL_COLUMNS]
+        
+        # Convert to structured text
+        for idx, row in df.iterrows():
+            row_values = []
+            for col_idx, value in enumerate(row):
+                if pd.notna(value) and str(value).strip():
+                    # Add column header if available (first row)
+                    if idx == 0:
+                        row_values.append(f"Col{col_idx+1}:{str(value).strip()}")
+                    else:
+                        row_values.append(str(value).strip())
+            
+            if row_values:
+                if idx == 0:
+                    extracted_text.append(f"  HEADERS: {' | '.join(row_values)}")
+                else:
+                    extracted_text.append(f"  Row{idx+1}: {' | '.join(row_values)}")
+        
+        full_text = "\n".join(extracted_text)
+        return clean_text(full_text)
+        
+    except Exception as e:
+        logger.error(f"Error extracting CSV text: {e}")
+        return ""
+
+def extract_text_from_image_fast(file) -> str:
+    """Fast image text extraction using Gemini API."""
+    try:
+        import google.generativeai as genai
+        from PIL import Image
+        from io import BytesIO
+        import time
+        
+        print("\n" + "="*80)
+        print("🔍 GEMINI API DEBUGGING - UPDATED CODE VERSION")
+        print("="*80)
+        
+        # Read image
+        image_bytes = file.read()
+        image = Image.open(BytesIO(image_bytes))
+        
+        print(f"📸 Image size: {image.size}")
+        print(f"📸 Image mode: {image.mode}")
+        
+        # Initialize Gemini API
+        if not Config.GEMINI_API_KEY:
+            print("❌ Gemini API key not configured")
+            return ""
+        
+        print("🔍 Initializing Gemini API...")
+        genai.configure(api_key=Config.GEMINI_API_KEY)
+        
+        # Initialize Gemini model
+        print(f"🔍 Using Gemini model: {Config.GEMINI_MODEL}")
+        model = genai.GenerativeModel(Config.GEMINI_MODEL)
+        
+        # Prepare image for Gemini API
+        print("🔍 Preparing image for Gemini API...")
+        
+        # Perform text extraction
+        print("🔍 Performing text extraction with Gemini API...")
+        start_time = time.time()
+        
+        # Create prompt for text extraction
+        prompt = """
+        Please extract ALL text content from this image. Include:
+        - Any numbers, mathematical expressions, or calculations
+        - Headers, titles, labels
+        - Body text, descriptions
+        - Tables, lists, or structured data
+        - Any symbols or special characters
+        
+        Return ONLY the extracted text, exactly as it appears in the image.
+        Do not add any explanations, interpretations, or corrections.
+        If you see mathematical content like "2+2=5", extract it exactly as shown.
+        """
+        
+        response = model.generate_content([prompt, image])
+        
+        gemini_time = time.time() - start_time
+        print(f"🔍 Gemini API response time: {gemini_time:.2f}s")
+        
+        if not response or not response.text:
+            print("❌ Gemini API returned empty response")
+            return ""
+        
+        extracted_text = response.text.strip()
+        
+        print("\n" + "-"*80)
+        print("📝 EXTRACTED TEXT FROM IMAGE (Gemini API):")
+        print("-"*80)
+        print(extracted_text)
+        print("-"*80)
+        print(f"📊 Text length: {len(extracted_text)} characters")
+        print(f"🔍 Gemini API processing time: {gemini_time:.2f}s")
+        print("="*80 + "\n")
+        
+        # Add a marker to verify this is the updated code
+        extracted_text += "\n[UPDATED_CODE_MARKER]"
+        
+        return extracted_text
+        
+    except Exception as e:
+        logger.error(f"Error extracting image text with Gemini API: {e}")
+        print(f"❌ Error extracting image text: {e}")
+        return ""
+
+ 

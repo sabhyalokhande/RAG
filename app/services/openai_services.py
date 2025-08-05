@@ -43,7 +43,7 @@ from app.services.utils import (
 )
 from app.services.document_prompts import (
     construct_rag_prompt_with_document_detection,
-    get_document_specific_prompt
+    get_document_specific_prompt, get_file_type_prompt
 )
 
 logger = logging.getLogger(__name__)
@@ -164,32 +164,58 @@ async def get_embeddings_sequential(texts: List[str]) -> List[List[float]]:
         return []
 
 @retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
-async def process_and_store_document_fast(file, collection_name: str, chroma_client=None) -> Dict[str, Any]:
+async def process_and_store_document_fast(file, collection_name: str, chroma_client=None, file_extension: str = None) -> Dict[str, Any]:
     """Fast document processing with parallel operations."""
     start_time = time.time()
     
     try:
-        # Extract text in parallel
+        # Extract text in parallel using the proper extraction function
         loop = asyncio.get_event_loop()
-        text = await loop.run_in_executor(None, lambda: file.read().decode('utf-8', errors='ignore'))
+        from app.services.utils import extract_text_from_file
+        text = await loop.run_in_executor(None, extract_text_from_file, file)
+        
+        print("\n" + "="*80)
+        print("🔍 DOCUMENT PROCESSING DEBUG")
+        print("="*80)
+        print(f"📄 Extracted text length: {len(text)}")
+        print(f"📄 Extracted text preview: {text[:500]}...")
+        print(f"📄 Full extracted text:")
+        print(text)
+        print("="*80)
         
         if not text:
             return {"error": "No text extracted from document"}
         
-        # Clean text
-        text = clean_text(text)
+        # Clean text based on file type
+        from app.services.utils import clean_text, clean_text_for_images
+        if file_extension and file_extension.lower() in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+            print("🧹 Using specialized image text cleaning")
+            text = clean_text_for_images(text)
+        else:
+            print("🧹 Using standard text cleaning")
+            text = clean_text(text)
+        
+        print(f"🧹 Cleaned text length: {len(text)}")
+        print(f"🧹 Cleaned text preview: {text[:500]}...")
         
         # Chunk text in parallel
         chunks = await loop.run_in_executor(None, chunk_text_advanced, text)
+        print(f"✂️  Generated {len(chunks)} chunks")
+        for i, chunk in enumerate(chunks[:3]):  # Show first 3 chunks
+            print(f"✂️  Chunk {i+1}: {chunk[:200]}...")
         
         # Process chunks in parallel
         processed_chunks = await loop.run_in_executor(None, process_chunks_parallel, chunks, "")
+        print(f"⚙️  Processed {len(processed_chunks)} chunks")
+        for i, chunk in enumerate(processed_chunks[:3]):  # Show first 3 processed chunks
+            print(f"⚙️  Processed Chunk {i+1}: {chunk[:200]}...")
         
         if not processed_chunks:
             return {"error": "No valid chunks generated"}
         
         # Generate embeddings in parallel
         embeddings = await get_embeddings_parallel(processed_chunks)
+        print(f"🔢 Generated {len(embeddings)} embeddings")
         
         if not embeddings:
             return {"error": "Failed to generate embeddings"}
@@ -210,6 +236,8 @@ async def process_and_store_document_fast(file, collection_name: str, chroma_cli
                     documents=batch_chunks,
                     ids=batch_ids
                 )
+            
+            print(f"💾 Stored {len(processed_chunks)} chunks in vector database")
         
         processing_time = time.time() - start_time
         
@@ -230,9 +258,15 @@ async def query_vector_db_fast(query: str, collection_name: str, top_k: int = No
     try:
         top_k = top_k or Config.SIMILARITY_TOP_K
         
+        print(f"\n🔍 VECTOR SEARCH DEBUG")
+        print(f"🔍 Query: {query}")
+        print(f"🔍 Collection: {collection_name}")
+        print(f"🔍 Top K: {top_k}")
+        
         # Get query embedding
         query_embedding = await get_embeddings_parallel([query])
         if not query_embedding:
+            print("❌ Failed to generate query embedding")
             return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
         
         # Query vector database
@@ -244,18 +278,26 @@ async def query_vector_db_fast(query: str, collection_name: str, top_k: int = No
                 n_results=top_k,
                 include=["documents", "metadatas", "distances"]
             )
-        
+            
+            print(f"🔍 Retrieved {len(results['documents'][0])} documents")
+            for i, doc in enumerate(results['documents'][0][:3]):  # Show first 3 results
+                print(f"🔍 Result {i+1}: {doc[:200]}...")
+                if 'distances' in results and results['distances'][0]:
+                    print(f"🔍 Distance {i+1}: {results['distances'][0][i]}")
+            
             return results
         else:
             # Fallback to empty results
+            print("❌ No chroma client available")
             return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
             
     except Exception as e:
         logger.error(f"Error in fast vector database query: {e}")
+        print(f"❌ Error in vector search: {e}")
         return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
 
-def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, tone=None, document_url: str = None) -> str:
-    """Fast RAG prompt construction combining document-specific, general, and intelligence specification prompts."""
+def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, tone=None, document_url: str = None, file_extension: str = None) -> str:
+    """Fast RAG prompt construction with document-specific prompt detection."""
     try:
         # Extract organization info
         org_name = org_info.get('name', 'Your Organization') if org_info else 'Your Organization'
@@ -265,15 +307,37 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         if not tone:
             tone = "professional"
         
-        # Fast context organization
+        # Fast context organization - NO DOCUMENT REFERENCES
         context_parts = []
         for doc in relevant_docs['documents'][0]:
             context_parts.append(f"{doc}")
         
         context_text = "\n".join(context_parts)
         
-        # Check if context is empty or very minimal
-        if not context_text.strip() or len(context_text.strip()) < 50:
+        print(f"\n🔍 PROMPT CONSTRUCTION DEBUG")
+        print(f"🔍 Query: {query}")
+        print(f"🔍 File extension: {file_extension}")
+        print(f"🔍 Context length: {len(context_text)}")
+        print(f"🔍 Context preview: {context_text[:500]}...")
+        print(f"🔍 Full context:")
+        print(context_text)
+        
+        # Check if context is empty or very minimal (but allow image content which can be short)
+        if not context_text.strip():
+            print("⚠️  Context is completely empty")
+            return f"""You are an AI assistant for {org_name}, {org_description}.
+
+CRITICAL INSTRUCTION: The provided context contains insufficient or no relevant information to answer the question. 
+
+Question: {query}
+
+Response: I cannot provide an answer to this question based on the available document content. The information you're asking about is not covered in the provided document. Please ask questions that are relevant to the content of this specific document."""
+        
+        # For image files, allow shorter context (OCR can produce short but meaningful text)
+        if file_extension and file_extension.lower() in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+            print(f"🔍 Image file detected, allowing short context ({len(context_text.strip())} chars)")
+        elif len(context_text.strip()) < 50:
+            print("⚠️  Context is too minimal for non-image files")
             return f"""You are an AI assistant for {org_name}, {org_description}.
 
 CRITICAL INSTRUCTION: The provided context contains insufficient or no relevant information to answer the question. 
@@ -287,9 +351,21 @@ Response: I cannot provide an answer to this question based on the available doc
         if document_url:
             document_specific_prompt = get_document_specific_prompt(document_url)
         
-        # INTELLIGENCE SPECIFICATION from openai service
+        # Get file-type specific prompt if no document-specific prompt
+        if not document_specific_prompt and file_extension:
+            document_specific_prompt = get_file_type_prompt(file_extension)
+            print(f"🔍 Using file-type specific prompt for: {file_extension}")
+            if document_specific_prompt:
+                print(f"🔍 File-type prompt found: {document_specific_prompt[:200]}...")
+            else:
+                print(f"❌ No file-type prompt found for: {file_extension}")
+        
+        if document_specific_prompt:
+            print(f"🔍 Document-specific prompt preview: {document_specific_prompt[:200]}...")
+        
+        # ENHANCED INTELLIGENT ANSWER prompt with document-specific detection
         intelligence_specification = f"""You are an AI assistant for {org_name}, {org_description}.
-Analyze the document content intelligently and answer questions based on the provided context.
+Provide comprehensive answers based on intelligent analysis of the document content.
 
 CRITICAL GUIDELINES:
 1. Use a {tone} tone.
@@ -343,11 +419,15 @@ RESPONSE FORMAT REQUIREMENTS:
         
         # Construct the combined prompt
         if document_specific_prompt:
-            # Combine document-specific prompt with intelligence specification
-            combined_prompt = f"{document_specific_prompt}\n\n{intelligence_specification}\n\nDocument Information: {context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."
+            # For document-specific prompts (like image prompts), combine with intelligence specification
+            # This ensures we get both the specialized handling AND detailed information extraction
+            combined_prompt = f"{document_specific_prompt}\n\n{intelligence_specification}\n\nDocument Information: {context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer based on the specific instructions above. Extract all relevant details, numbers, and specific information from the document content."
         else:
             # Use only intelligence specification (which includes general guidelines)
             combined_prompt = f"{intelligence_specification}\n\nDocument Content:\n{context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."
+        
+        print(f"🔍 Final prompt length: {len(combined_prompt)}")
+        print(f"🔍 Final prompt preview: {combined_prompt[:500]}...")
         
         return combined_prompt
         
@@ -561,7 +641,7 @@ Please analyze the document content thoroughly and provide a comprehensive answe
         return f"Answer the following question based on the provided context:\n\nContext: {relevant_docs}\n\nQuestion: {query}\n\nAnswer:"
 
 @retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
-async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None, document_url: str = None) -> str:
+async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None, document_url: str = None, file_extension: str = None) -> str:
     """Fast answer generation with document-specific prompt detection."""
     if not async_client:
         raise Exception("Azure OpenAI client not initialized.")
@@ -575,7 +655,7 @@ async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_his
             return cached_answer
         
         # Fast prompt construction with document detection
-        system_prompt = construct_rag_prompt_fast(query, relevant_docs, org_info, tone, document_url)
+        system_prompt = construct_rag_prompt_fast(query, relevant_docs, org_info, tone, document_url, file_extension)
         
         # Simple message structure for speed
         messages = [
@@ -719,7 +799,7 @@ async def generate_answer_dynamic(query: str, relevant_docs: Dict, conversation_
         logger.error(f"Error in dynamic answer generation: {e}")
         return f"Error generating answer: {str(e)}"
 
-async def process_questions_parallel(questions: List[str], collection_name: str, chroma_client=None, org_info=None, tone=None, document_url: str = None) -> List[str]:
+async def process_questions_parallel(questions: List[str], collection_name: str, chroma_client=None, org_info=None, tone=None, document_url: str = None, file_extension: str = None) -> List[str]:
     """Process multiple questions in parallel for speed optimization with document-specific prompts."""
     try:
         # Process questions in parallel
@@ -728,8 +808,8 @@ async def process_questions_parallel(questions: List[str], collection_name: str,
                 # Fast vector search
                 relevant_docs = await query_vector_db_fast(question, collection_name, chroma_client=chroma_client)
                 
-                # Fast answer generation with document URL
-                answer = await generate_answer_fast(question, relevant_docs, org_info=org_info, tone=tone, document_url=document_url)
+                # Fast answer generation with document URL and file extension
+                answer = await generate_answer_fast(question, relevant_docs, org_info=org_info, tone=tone, document_url=document_url, file_extension=file_extension)
                 
                 return answer
             except Exception as e:

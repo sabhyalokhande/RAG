@@ -26,6 +26,37 @@ class Config:
     MAX_PROCESSING_TIME = 60  # Target: 60 seconds total
     
     # ============================================================================
+    # NEW FILE TYPE PROCESSING SETTINGS
+    # ============================================================================
+    
+    # PowerPoint Processing
+    ENABLE_PPT_PROCESSING = True
+    PPT_EXTRACT_NOTES = True
+    PPT_EXTRACT_SHAPES = True
+    PPT_EXTRACT_TABLES = True
+    
+    # Image Processing - Gemini API
+    ENABLE_IMAGE_PROCESSING = True
+    GEMINI_API_ENABLED = True
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    GEMINI_MODEL = "gemini-2.0-flash-exp"
+    GEMINI_TIMEOUT = 10  # 10 seconds timeout for Gemini API
+    GEMINI_MAX_RETRIES = 2
+    
+    # Excel Processing
+    ENABLE_EXCEL_PROCESSING = True
+    MAX_EXCEL_ROWS = 10000
+    MAX_EXCEL_COLUMNS = 100
+    EXCEL_EXTRACT_FORMULAS = False  # Set to True if you want to extract formulas
+    
+    # CSV Processing
+    ENABLE_CSV_PROCESSING = True
+    CSV_ENCODING_DETECTION = True
+    CSV_DEFAULT_ENCODING = "utf-8"
+    CSV_MAX_ROWS = 10000
+    CSV_MAX_COLUMNS = 100
+    
+    # ============================================================================
     # PARALLEL PROCESSING OPTIMIZATION
     # ============================================================================
     
@@ -165,6 +196,13 @@ class Config:
         print(f"   AZURE_DEPLOYMENT_COMPLETION: {cls.AZURE_DEPLOYMENT_COMPLETION}")
         print(f"   CHROMA_DB_PATH: {cls.CHROMA_DB_PATH}")
         print(f"   PINECONE_API_KEY: {'✅ Set' if cls.PINECONE_API_KEY else '❌ Missing'}")
+        print(f"   ENABLE_PPT_PROCESSING: {cls.ENABLE_PPT_PROCESSING}")
+        print(f"   ENABLE_IMAGE_PROCESSING: {cls.ENABLE_IMAGE_PROCESSING}")
+        print(f"   GEMINI_API_ENABLED: {cls.GEMINI_API_ENABLED}")
+        print(f"   GEMINI_API_KEY: {'✅ Set' if cls.GEMINI_API_KEY else '❌ Missing'}")
+        print(f"   GEMINI_MODEL: {cls.GEMINI_MODEL}")
+        print(f"   ENABLE_EXCEL_PROCESSING: {cls.ENABLE_EXCEL_PROCESSING}")
+        print(f"   ENABLE_CSV_PROCESSING: {cls.ENABLE_CSV_PROCESSING}")
         print("="*80)
 
 # Validate configuration on import

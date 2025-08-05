@@ -41,6 +41,9 @@ from app.services.openai_services import (
 from app.services.utils import (
     clean_text, extract_text_from_file, chunk_text_advanced
 )
+from app.services.document_prompts import (
+    get_document_specific_prompt, get_file_type_prompt
+)
 from config import Config
 
 # Configure logging
@@ -170,6 +173,13 @@ async def hackrx_run():
         collection_name = "hackrx_documents"
         logger.info(f"Processing document from URL: {documents_url}")
         
+        # Clear existing collection to avoid mixing old and new documents
+        try:
+            chroma_client.delete_collection(collection_name)
+            logger.info(f"Cleared existing collection: {collection_name}")
+        except Exception as e:
+            logger.info(f"Collection {collection_name} didn't exist or already cleared: {e}")
+        
         # Download the PDF from the URL
         logger.info(f"Downloading document from URL: {documents_url}")
         try:
@@ -217,7 +227,28 @@ async def hackrx_run():
             def tell(self):
                 return self.position
         
-        file_obj = FileWrapper(response.content, "document.pdf")
+        # Detect file type from URL
+        file_extension = None
+        if '.' in documents_url:
+            # Extract just the file extension, ignoring query parameters
+            url_path = documents_url.split('?')[0]  # Remove query parameters
+            if '.' in url_path:
+                file_extension = url_path.split('.')[-1].lower()
+                print(f"🔍 DEBUG: Detected file extension: '{file_extension}' from URL: '{documents_url}'")
+                print(f"🔍 DEBUG: URL path after removing query params: '{url_path}'")
+            else:
+                print(f"🔍 DEBUG: No file extension found in URL path: '{url_path}'")
+        else:
+            print(f"🔍 DEBUG: No '.' found in URL: '{documents_url}'")
+        
+        # Create file wrapper with correct filename
+        filename = f"document.{file_extension}" if file_extension else "document.pdf"
+        file_obj = FileWrapper(response.content, filename)
+        
+        # Get appropriate prompt based on file type
+        document_specific_prompt = get_document_specific_prompt(documents_url)
+        if not document_specific_prompt and file_extension:
+            document_specific_prompt = get_file_type_prompt(file_extension)
         
         # Step 1: Fast document processing
         document_start = time.time()
@@ -225,9 +256,12 @@ async def hackrx_run():
         print("📄 FAST DOCUMENT PROCESSING")
         print("="*80)
         print(f"🔗 Downloading from: {documents_url}")
+        print(f"📁 File type: {file_extension or 'unknown'}")
+        if document_specific_prompt:
+            print(f"🎯 Using specialized prompt for: {file_extension or 'document'}")
         
         # Process document with parallel operations
-        document_result = await process_and_store_document_fast(file_obj, collection_name, chroma_client)
+        document_result = await process_and_store_document_fast(file_obj, collection_name, chroma_client, file_extension)
         
         if "error" in document_result:
             logger.error(f"Document processing failed: {document_result['error']}")
@@ -245,7 +279,7 @@ async def hackrx_run():
         print(f"📝 Processing {len(questions)} questions in parallel")
         
         # Process all questions in parallel with document-specific prompts
-        answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url)
+        answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension)
         
         questions_time = time.time() - questions_start
         total_time = time.time() - start_time
