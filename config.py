@@ -11,19 +11,19 @@ class Config:
     # CORE SETTINGS - OPTIMIZED FOR SPEED
     # ============================================================================
     
-    # Document Processing - Optimized for better recall
-    CHUNK_SIZE = 1200  # Reduced for better semantic boundaries
-    CHUNK_OVERLAP = 300  # Increased for better context preservation
-    MAX_CHUNKS_PER_DOCUMENT = 150  # Increased for better coverage
+    # Document Processing - Optimized for 30-second target
+    CHUNK_SIZE = 800  # Reduced for faster processing
+    CHUNK_OVERLAP = 200  # Reduced for speed
+    MAX_CHUNKS_PER_DOCUMENT = 80  # Reduced for speed
     
-    # Vector Search - Optimized for better recall
-    SIMILARITY_TOP_K = 35  # Increased for better retrieval coverage
-    SIMILARITY_THRESHOLD = 0.6  # Reduced for more inclusive retrieval
+    # Vector Search - Optimized for speed
+    SIMILARITY_TOP_K = 25  # Reduced for faster retrieval
+    SIMILARITY_THRESHOLD = 0.5  # Reduced for more inclusive retrieval
     
     # AI Model Settings - Optimized for speed
     TEMPERATURE = 0.1  # Low temperature for consistent answers
-    MAX_TOKENS = 2000  # Reduced from 4000 for faster generation
-    MAX_PROCESSING_TIME = 60  # Target: 60 seconds total
+    MAX_TOKENS = 1500  # Reduced for faster generation
+    MAX_PROCESSING_TIME = 30  # Target: 30 seconds total
     
     # ============================================================================
     # NEW FILE TYPE PROCESSING SETTINGS
@@ -56,6 +56,11 @@ class Config:
     CSV_MAX_ROWS = 10000
     CSV_MAX_COLUMNS = 100
     
+    # ZIP Processing
+    ENABLE_ZIP_PROCESSING = True
+    MAX_ZIP_FILES = 20  # Limit number of files to process from ZIP
+    ZIP_EXTRACT_RECURSIVE = True  # Enable recursive extraction for nested ZIPs
+    
     # ============================================================================
     # PARALLEL PROCESSING OPTIMIZATION
     # ============================================================================
@@ -66,14 +71,14 @@ class Config:
     PARALLEL_EMBEDDING_PROCESSING = True
     PARALLEL_ANSWER_GENERATION = True
     
-    # Thread Pool Settings
-    MAX_WORKERS_CHUNKING = 8  # Parallel chunk processing
-    MAX_WORKERS_EMBEDDINGS = 6  # Parallel embedding generation
-    MAX_WORKERS_ANSWERS = 4  # Parallel answer generation
+    # Thread Pool Settings - Optimized for speed
+    MAX_WORKERS_CHUNKING = 12  # Increased for faster chunk processing
+    MAX_WORKERS_EMBEDDINGS = 8  # Increased for faster embedding generation
+    MAX_WORKERS_ANSWERS = 6  # Increased for faster answer generation
     
-    # Batch Processing
-    BATCH_SIZE_EMBEDDINGS = 50  # Increased for faster processing
-    BATCH_SIZE_CHUNKS = 100  # Process chunks in larger batches
+    # Batch Processing - Optimized for speed
+    BATCH_SIZE_EMBEDDINGS = 100  # Increased for faster processing
+    BATCH_SIZE_CHUNKS = 200  # Process chunks in larger batches
     
     # ============================================================================
     # SPEED OPTIMIZATION SETTINGS
@@ -121,10 +126,10 @@ class Config:
     MEDIUM_DOC_TOP_K = 35  # Increased for better coverage
     LARGE_DOC_TOP_K = 50  # Increased for better coverage
     
-    # Time Targets
-    TARGET_PROCESSING_TIME = 60  # 60 seconds target
-    DOCUMENT_PROCESSING_TARGET = 20  # 20 seconds for document
-    QUESTIONS_PROCESSING_TARGET = 40  # 40 seconds for questions
+    # Time Targets - Optimized for 30-second total
+    TARGET_PROCESSING_TIME = 30  # 30 seconds target
+    DOCUMENT_PROCESSING_TARGET = 15  # 15 seconds for document
+    QUESTIONS_PROCESSING_TARGET = 15  # 15 seconds for questions
     
     # ============================================================================
     # CACHING AND OPTIMIZATION

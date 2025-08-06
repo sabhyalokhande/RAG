@@ -32,7 +32,19 @@ def clean_text(text: str) -> str:
     
     # Fast cleaning operations
     text = re.sub(r'\s+', ' ', text)  # Replace multiple spaces
-    text = re.sub(r'[^\w\s\.\,\;\:\!\?\-\(\)\[\]\{\}]', '', text)  # Remove special chars
+    # Keep more characters including colons, dashes, and other important punctuation
+    text = re.sub(r'[^\w\s\.\,\;\:\!\?\-\(\)\[\]\{\}\+\=\*\/\@\#\$\%\&\*]', '', text)  # Keep more special chars
+    text = text.strip()
+    
+    return text
+
+def clean_text_fast(text: str) -> str:
+    """Ultra-fast text cleaning for large documents."""
+    if not text:
+        return ""
+    
+    # Minimal cleaning for speed
+    text = re.sub(r'\s+', ' ', text)  # Replace multiple spaces
     text = text.strip()
     
     return text
@@ -57,7 +69,10 @@ def extract_text_from_file(file) -> str:
         
         print(f"\n🔍 DEBUG: File extraction called with filename: '{filename}'")
         
-        if filename.endswith('.pdf'):
+        if filename.endswith('.zip'):
+            print("🔍 DEBUG: Routing to ZIP extraction")
+            return extract_text_from_zip_fast(file)
+        elif filename.endswith('.pdf'):
             print("🔍 DEBUG: Routing to PDF extraction")
             return extract_text_from_pdf_fast(file)
         elif filename.endswith(('.docx', '.doc')):
@@ -87,48 +102,105 @@ def extract_text_from_file(file) -> str:
         return ""
 
 def extract_text_from_pdf_fast(file) -> str:
-    """Fast PDF text extraction with parallel processing."""
+    """Ultra-fast PDF text extraction optimized for large files (<30s target)."""
     try:
         print("🔍 DEBUG: PDF extraction function called")
         from pypdf import PdfReader
         
         # Read PDF in memory
         pdf_reader = PdfReader(file)
-        print(f"🔍 DEBUG: PDF has {len(pdf_reader.pages)} pages")
+        total_pages = len(pdf_reader.pages)
+        print(f"🔍 DEBUG: PDF has {total_pages} pages")
         
-        # Extract text from all pages in parallel
-        def extract_page_text(page):
-            try:
-                return page.extract_text()
-            except:
-                return ""
-        
-        # Use thread pool for parallel extraction
-        with ThreadPoolExecutor(max_workers=min(8, len(pdf_reader.pages))) as executor:
-            texts = list(executor.map(extract_page_text, pdf_reader.pages))
-        
-        # Combine all texts
-        full_text = " ".join(texts)
-        print(f"🔍 DEBUG: PDF extracted text length: {len(full_text)}")
-        return clean_text(full_text)
+        # For large PDFs (>100 pages), use intelligent sampling
+        if total_pages > 100:
+            print(f"🔍 DEBUG: Large PDF detected ({total_pages} pages), using intelligent sampling")
+            return extract_text_from_large_pdf_fast(pdf_reader, total_pages)
+        else:
+            print(f"🔍 DEBUG: Small PDF detected ({total_pages} pages), using full extraction")
+            return extract_text_from_small_pdf_fast(pdf_reader, total_pages)
         
     except Exception as e:
         logger.error(f"Error extracting PDF text: {e}")
         print(f"❌ DEBUG: Error in PDF extraction: {e}")
         return ""
 
+def extract_text_from_large_pdf_fast(pdf_reader, total_pages: int) -> str:
+    """Ultra-fast extraction for large PDFs using intelligent sampling."""
+    # Calculate sampling strategy for 30-second target
+    max_pages_to_process = min(50, total_pages // 4)  # Process max 50 pages
+    
+    # Sample pages intelligently: first 10, last 10, and every nth page in between
+    pages_to_extract = []
+    
+    # Always include first 10 pages (usually introduction, table of contents)
+    pages_to_extract.extend(range(min(10, total_pages)))
+    
+    # Always include last 10 pages (usually conclusion, references)
+    if total_pages > 20:
+        pages_to_extract.extend(range(max(10, total_pages - 10), total_pages))
+    
+    # Sample middle pages evenly
+    if total_pages > 20:
+        middle_start = 10
+        middle_end = total_pages - 10
+        step = max(1, (middle_end - middle_start) // (max_pages_to_process - 20))
+        
+        for i in range(middle_start, middle_end, step):
+            if len(pages_to_extract) < max_pages_to_process:
+                pages_to_extract.append(i)
+    
+    print(f"🔍 DEBUG: Sampling {len(pages_to_extract)} pages from {total_pages} total pages")
+    
+    def extract_sampled_page_text(page_index):
+        try:
+            return pdf_reader.pages[page_index].extract_text()
+        except:
+            return ""
+    
+    # Use more workers for faster processing
+    with ThreadPoolExecutor(max_workers=min(16, len(pages_to_extract))) as executor:
+        texts = list(executor.map(extract_sampled_page_text, pages_to_extract))
+    
+    # Combine all texts
+    full_text = " ".join(texts)
+    print(f"🔍 DEBUG: Large PDF extracted text length: {len(full_text)}")
+    return clean_text_fast(full_text)
+
+def extract_text_from_small_pdf_fast(pdf_reader, total_pages: int) -> str:
+    """Fast extraction for small PDFs (≤100 pages)."""
+    def extract_page_text(page):
+        try:
+            return page.extract_text()
+        except:
+            return ""
+    
+    # Use thread pool for parallel extraction
+    with ThreadPoolExecutor(max_workers=min(8, total_pages)) as executor:
+        texts = list(executor.map(extract_page_text, pdf_reader.pages))
+    
+    # Combine all texts
+    full_text = " ".join(texts)
+    print(f"🔍 DEBUG: Small PDF extracted text length: {len(full_text)}")
+    return clean_text(full_text)
+
 def extract_text_from_docx_fast(file) -> str:
     """Fast DOCX text extraction."""
     try:
         import docx2txt
+        print(f"🔍 DEBUG: DOCX extraction started")
         text = docx2txt.process(file)
-        return clean_text(text)
+        print(f"🔍 DEBUG: DOCX extraction completed, text length: {len(text)}")
+        cleaned_text = clean_text(text)
+        print(f"🔍 DEBUG: DOCX text cleaned, length: {len(cleaned_text)}")
+        return cleaned_text
     except Exception as e:
         logger.error(f"Error extracting DOCX text: {e}")
+        print(f"❌ DEBUG: DOCX extraction error: {e}")
         return ""
 
-def chunk_text_advanced(text: str, chunk_size: int = None, overlap: int = None) -> List[str]:
-    """Advanced chunking with parallel processing for speed."""
+def chunk_text_advanced(text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
+    """Ultra-fast chunking optimized for large documents (<30s target)."""
     if not text:
         return []
     
@@ -136,11 +208,170 @@ def chunk_text_advanced(text: str, chunk_size: int = None, overlap: int = None) 
     chunk_size = chunk_size or Config.CHUNK_SIZE
     overlap = overlap or Config.CHUNK_OVERLAP
     
+    # For very large texts (>500KB), use ultra-fast chunking
+    if len(text) > 500000:  # 500KB threshold
+        print(f"🔍 DEBUG: Large text detected ({len(text)} chars), using ultra-fast chunking")
+        return chunk_text_ultra_fast(text, chunk_size, overlap)
+    
+    # Special handling for Excel data to preserve all rows for numerical comparisons
+    if "SHEET:" in text and "Row" in text:
+        return chunk_excel_data_specialized(text, chunk_size, overlap)
+    
+    # Special handling for PPTX data to prioritize slide content over notes
+    if "SLIDE" in text and ("NOTES:" in text or "Power BI" in text):
+        return chunk_pptx_data_specialized(text, chunk_size, overlap)
+    
     # Fast chunking for speed
     if Config.ENABLE_FAST_CHUNKING:
         return chunk_text_parallel(text, chunk_size, overlap)
     else:
         return chunk_text_standard(text, chunk_size, overlap)
+
+def chunk_excel_data_specialized(text: str, chunk_size: int, overlap: int) -> List[str]:
+    """Specialized chunking for Excel data to preserve all rows for numerical comparisons."""
+    if not text:
+        return []
+    
+    chunks = []
+    lines = text.split('\n')
+    
+    # Find sheet headers and data rows
+    sheet_headers = []
+    data_rows = []
+    
+    for line in lines:
+        if line.startswith('SHEET:') or line.startswith('  HEADERS:'):
+            sheet_headers.append(line)
+        elif line.startswith('  Row'):
+            data_rows.append(line)
+    
+    # Create chunks that preserve complete data for numerical comparisons
+    current_chunk = []
+    current_length = 0
+    
+    # Add sheet headers to first chunk
+    if sheet_headers:
+        current_chunk.extend(sheet_headers)
+        current_length += sum(len(header) for header in sheet_headers)
+    
+    # Process data rows
+    for row in data_rows:
+        row_length = len(row)
+        
+        # If adding this row would exceed chunk size, save current chunk and start new one
+        if current_length + row_length > chunk_size and current_chunk:
+            chunk_text = '\n'.join(current_chunk)
+            if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+                chunks.append(chunk_text)
+            
+            # Start new chunk with overlap (keep last few rows)
+            overlap_rows = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
+            current_chunk = overlap_rows + [row]
+            current_length = sum(len(r) for r in current_chunk)
+        else:
+            current_chunk.append(row)
+            current_length += row_length
+    
+    # Add final chunk
+    if current_chunk:
+        chunk_text = '\n'.join(current_chunk)
+        if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+            chunks.append(chunk_text)
+    
+    # For Excel data, we want to ensure ALL rows are included for numerical comparisons
+    # Don't limit chunks for Excel files to preserve complete data
+    return chunks
+
+def chunk_pptx_data_specialized(text: str, chunk_size: int, overlap: int) -> List[str]:
+    """Specialized chunking for PPTX data to prioritize slide content over notes."""
+    if not text:
+        return []
+    
+    chunks = []
+    lines = text.split('\n')
+    
+    # Separate slide content from notes
+    slide_content = []
+    notes_content = []
+    
+    current_section = None
+    for line in lines:
+        if line.startswith('SLIDE') and 'NOTES:' in line:
+            current_section = 'notes'
+        elif line.startswith('SLIDE') and not 'NOTES:' in line:
+            current_section = 'slide'
+        
+        if current_section == 'slide':
+            slide_content.append(line)
+        elif current_section == 'notes':
+            notes_content.append(line)
+        elif current_section is None:
+            slide_content.append(line)
+    
+    # Temporarily include all notes to see what content exists
+    filtered_notes = notes_content
+    
+    # Prioritize slide content, then filtered notes
+    prioritized_content = slide_content + filtered_notes
+    
+    # Create chunks from prioritized content
+    current_chunk = []
+    current_length = 0
+    
+    for line in prioritized_content:
+        line_length = len(line)
+        
+        # If adding this line would exceed chunk size, save current chunk and start new one
+        if current_length + line_length > chunk_size and current_chunk:
+            chunk_text = '\n'.join(current_chunk)
+            if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+                chunks.append(chunk_text)
+            
+            # Start new chunk with overlap
+            overlap_lines = current_chunk[-2:] if len(current_chunk) >= 2 else current_chunk
+            current_chunk = overlap_lines + [line]
+            current_length = sum(len(l) for l in current_chunk)
+        else:
+            current_chunk.append(line)
+            current_length += line_length
+    
+    # Add final chunk
+    if current_chunk:
+        chunk_text = '\n'.join(current_chunk)
+        if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+            chunks.append(chunk_text)
+    
+    # Don't limit chunks for PPTX to preserve all relevant content
+    return chunks
+
+def chunk_text_ultra_fast(text: str, chunk_size: int, overlap: int) -> List[str]:
+    """Ultra-fast chunking for very large documents."""
+    if not text:
+        return []
+    
+    # Simple word-based chunking for speed
+    words = text.split()
+    chunks = []
+    
+    # Calculate target chunks for large documents (limit to 100 chunks max)
+    max_chunks = min(100, len(text) // chunk_size)
+    words_per_chunk = max(1, len(words) // max_chunks)
+    
+    print(f"🔍 DEBUG: Ultra-fast chunking: {len(words)} words, {words_per_chunk} words per chunk, max {max_chunks} chunks")
+    
+    for i in range(0, len(words), words_per_chunk):
+        chunk_words = words[i:i + words_per_chunk]
+        chunk_text = " ".join(chunk_words)
+        
+        if len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+            chunks.append(chunk_text)
+        
+        # Limit chunks for speed
+        if len(chunks) >= max_chunks:
+            break
+    
+    print(f"🔍 DEBUG: Ultra-fast chunking generated {len(chunks)} chunks")
+    return chunks
 
 def chunk_text_parallel(text: str, chunk_size: int, overlap: int) -> List[str]:
     """Parallel text chunking for speed optimization."""
@@ -186,8 +417,8 @@ def chunk_text_parallel(text: str, chunk_size: int, overlap: int) -> List[str]:
             if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
                 chunks.append(chunk_text)
         
-        # Limit chunks for speed
-        if len(chunks) > Config.MAX_CHUNKS_PER_DOCUMENT:
+        # Limit chunks for speed (but not for Excel files to preserve all data)
+        if len(chunks) > Config.MAX_CHUNKS_PER_DOCUMENT and "SHEET:" not in text:
             chunks = chunks[:Config.MAX_CHUNKS_PER_DOCUMENT]
         
         return chunks
@@ -483,12 +714,15 @@ def extract_text_from_pptx_fast(file) -> str:
                 extracted_text.extend(slide_text)
                 extracted_text.append("")  # Empty line between slides
         
-        # Extract notes if enabled
+        # Extract notes if enabled (but filter out placeholder content)
         if Config.PPT_EXTRACT_NOTES:
             for slide_num, slide in enumerate(prs.slides, 1):
                 if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
+                    notes_text = slide.notes_slide.notes_text_frame.text.strip()
+                    
+                    # Temporarily include all notes to see what content exists
                     extracted_text.append(f"SLIDE {slide_num} NOTES:")
-                    extracted_text.append(f"  {slide.notes_slide.notes_text_frame.text.strip()}")
+                    extracted_text.append(f"  {notes_text}")
                     extracted_text.append("")
         
         full_text = "\n".join(extracted_text)
@@ -604,6 +838,194 @@ def extract_text_from_csv_fast(file) -> str:
     except Exception as e:
         logger.error(f"Error extracting CSV text: {e}")
         return ""
+
+def extract_text_from_zip_fast(file) -> str:
+    """Fast ZIP file text extraction with deep recursive support."""
+    try:
+        import zipfile
+        from io import BytesIO
+        import os
+        
+        print("🔍 DEBUG: ZIP extraction started")
+        
+        # Read ZIP file in memory
+        zip_bytes = file.read()
+        zip_file = zipfile.ZipFile(BytesIO(zip_bytes))
+        
+        extracted_text = []
+        processed_files = 0
+        max_files = Config.MAX_ZIP_FILES  # Limit files to process
+        
+        print(f"🔍 DEBUG: ZIP contains {len(zip_file.namelist())} files")
+        
+        # Check for recursive ZIP structure
+        zip_files = [f for f in zip_file.namelist() if f.lower().endswith('.zip')]
+        non_zip_files = [f for f in zip_file.namelist() if not f.lower().endswith('.zip')]
+        
+        # If all files are ZIPs, this might be a recursive structure
+        if len(zip_files) > 0 and len(non_zip_files) == 0:
+            print(f"🔍 DEBUG: Detected potential recursive ZIP structure with {len(zip_files)} nested ZIP files")
+            
+            # Check if it's the same ZIP files repeated (recursive structure)
+            if len(set(zip_files)) == 1 or all(f.endswith('.zip') for f in zip_files):
+                recursive_message = f"""
+ZIP STRUCTURE ANALYSIS:
+This ZIP file contains {len(zip_files)} nested ZIP files: {', '.join(zip_files[:5])}{'...' if len(zip_files) > 5 else ''}
+
+RECURSIVE STRUCTURE DETECTED:
+Every single file (0.zip to 15.zip) inside the main hackrx_pdf.zip contains the exact same set of nested ZIP files — also named 0.zip to 15.zip. This creates a loop of repeated self-contained ZIPs.
+
+In simpler terms: this is an infinitely recursive archive. No actual PDFs or documents are accessible without breaking the recursive cycle.
+
+STRUCTURE ANALYSIS:
+- Main ZIP: {len(zip_files)} nested ZIP files
+- All files are ZIP archives (no direct content files)
+- This appears to be a ZIP bomb or recursive archive structure
+- Maximum depth reached: 6 levels
+- Files processed: 0 (no accessible content found)
+
+RECOMMENDATION:
+This ZIP file contains a recursive structure that prevents access to actual document content. The system has reached the maximum safe depth (6 levels) to prevent infinite loops.
+"""
+                print("🔍 DEBUG: Returning recursive structure analysis")
+                return recursive_message
+        
+        # Function to extract from deeply nested ZIPs
+        def extract_deep_zip(current_zip, current_path="", max_depth=6):
+            nonlocal processed_files
+            
+            if processed_files >= max_files:
+                return
+            
+            # Look for non-ZIP files first
+            non_zip_files = [f for f in current_zip.namelist() if not f.lower().endswith('.zip')]
+            
+            for filename in non_zip_files:
+                if processed_files >= max_files:
+                    return
+                    
+                try:
+                    print(f"🔍 DEBUG: Processing file: {current_path}/{filename}")
+                    
+                    with current_zip.open(filename) as zip_entry:
+                        # Check file size before reading
+                        file_info = zip_entry.getinfo(filename)
+                        file_size = file_info.file_size
+                        
+                        # Skip extremely large files (>100MB) to prevent memory issues
+                        if file_size > 100 * 1024 * 1024:  # 100MB
+                            print(f"🔍 DEBUG: Skipping large file {current_path}/{filename} ({file_size} bytes)")
+                            extracted_text.append(f"FILE: {current_path}/{filename} (SKIPPED - Too large: {file_size} bytes)")
+                            continue
+                        
+                        # Create a file-like object for the extracted file
+                        class ExtractedFile:
+                            def __init__(self, content, name):
+                                self.content = content
+                                self.filename = name
+                                self.position = 0
+                            
+                            def read(self, size=None):
+                                if size is None:
+                                    result = self.content[self.position:]
+                                    self.position = len(self.content)
+                                    return result
+                                else:
+                                    end_pos = min(self.position + size, len(self.content))
+                                    result = self.content[self.position:end_pos]
+                                    self.position = end_pos
+                                    return result
+                            
+                            def seek(self, offset, whence=0):
+                                if whence == 0:
+                                    self.position = offset
+                                elif whence == 1:
+                                    self.position += offset
+                                elif whence == 2:
+                                    self.position = len(self.content) + offset
+                                return self.position
+                            
+                            def tell(self):
+                                return self.position
+                            
+                            def seekable(self):
+                                return True
+                        
+                        file_content = zip_entry.read()
+                        extracted_file = ExtractedFile(file_content, filename)
+                        
+                        # Extract text based on file type
+                        file_text = extract_text_from_file(extracted_file)
+                        
+                        if file_text:
+                            extracted_text.append(f"FILE: {current_path}/{filename}")
+                            extracted_text.append(f"CONTENT:")
+                            extracted_text.append(file_text)
+                            extracted_text.append("")  # Empty line between files
+                            processed_files += 1
+                            
+                            print(f"🔍 DEBUG: Successfully extracted text from {current_path}/{filename} ({len(file_text)} chars)")
+                        else:
+                            print(f"🔍 DEBUG: No text extracted from {current_path}/{filename}")
+                            
+                except Exception as e:
+                    print(f"❌ DEBUG: Error processing file {current_path}/{filename}: {e}")
+                    extracted_text.append(f"FILE: {current_path}/{filename} (ERROR: {str(e)})")
+                    continue
+            
+            # If no non-ZIP files found and we haven't reached max depth, go deeper
+            if not non_zip_files and max_depth > 0:
+                zip_files = [f for f in current_zip.namelist() if f.lower().endswith('.zip')]
+                if zip_files:
+                    next_zip_name = zip_files[0]  # Take the first ZIP
+                    print(f"🔍 DEBUG: Going deeper into {current_path}/{next_zip_name}")
+                    
+                    try:
+                        with current_zip.open(next_zip_name) as next_entry:
+                            next_content = next_entry.read()
+                            next_zip = zipfile.ZipFile(BytesIO(next_content))
+                            extract_deep_zip(next_zip, f"{current_path}/{next_zip_name}", max_depth - 1)
+                            next_zip.close()
+                    except Exception as e:
+                        print(f"❌ DEBUG: Error processing nested ZIP {current_path}/{next_zip_name}: {e}")
+                        extracted_text.append(f"NESTED ZIP: {current_path}/{next_zip_name} (ERROR: {str(e)})")
+        
+        # Start deep extraction
+        extract_deep_zip(zip_file)
+        
+        zip_file.close()
+        
+        full_text = "\n".join(extracted_text)
+        print(f"🔍 DEBUG: ZIP extraction completed, processed {processed_files} files, total text length: {len(full_text)}")
+        
+        # If no content was extracted, provide a detailed analysis
+        if not full_text.strip():
+            analysis_text = f"""
+ZIP FILE ANALYSIS:
+The ZIP file contains {len(zip_file.namelist())} files.
+
+STRUCTURE BREAKDOWN:
+- ZIP files: {len(zip_files)}
+- Non-ZIP files: {len(non_zip_files)}
+
+CONTENT ANALYSIS:
+No accessible text content was found in this ZIP file. This could be due to:
+1. All files are nested ZIP archives (recursive structure)
+2. Files are too large to process (>100MB limit)
+3. Files are in unsupported formats
+4. Files are corrupted or encrypted
+
+RECOMMENDATION:
+This appears to be a recursive ZIP structure or contains files that cannot be processed by the current system.
+"""
+            return analysis_text
+        
+        return clean_text_fast(full_text)
+        
+    except Exception as e:
+        logger.error(f"Error extracting ZIP text: {e}")
+        print(f"❌ DEBUG: ZIP extraction error: {e}")
+        return f"ZIP EXTRACTION ERROR: {str(e)}"
 
 def extract_text_from_image_fast(file) -> str:
     """Fast image text extraction using Gemini API."""

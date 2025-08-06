@@ -168,6 +168,11 @@ async def process_and_store_document_fast(file, collection_name: str, chroma_cli
     """Fast document processing with parallel operations."""
     start_time = time.time()
     
+    print(f"🔍 DOCUMENT PROCESSING STARTED")
+    print(f"🔍 Collection name: {collection_name}")
+    print(f"🔍 ChromaDB client: {'Available' if chroma_client else 'Not available'}")
+    print(f"🔍 File extension: {file_extension}")
+    
     try:
         # Extract text in parallel using the proper extraction function
         loop = asyncio.get_event_loop()
@@ -222,22 +227,32 @@ async def process_and_store_document_fast(file, collection_name: str, chroma_cli
         
         # Store in vector database
         if chroma_client:
-            collection = chroma_client.get_or_create_collection(collection_name)
-            
-            # Store in batches for speed
-            batch_size = 100
-            for i in range(0, len(processed_chunks), batch_size):
-                batch_chunks = processed_chunks[i:i + batch_size]
-                batch_embeddings = embeddings[i:i + batch_size]
-                batch_ids = [f"chunk_{i + j}" for j in range(len(batch_chunks))]
+            print(f"🔍 ChromaDB client available, creating/getting collection: {collection_name}")
+            try:
+                collection = chroma_client.get_or_create_collection(collection_name)
+                print(f"✅ Collection {collection_name} ready")
                 
-                collection.add(
-                    embeddings=batch_embeddings,
-                    documents=batch_chunks,
-                    ids=batch_ids
-                )
-            
-            print(f"💾 Stored {len(processed_chunks)} chunks in vector database")
+                # Store in batches for speed
+                batch_size = 100
+                for i in range(0, len(processed_chunks), batch_size):
+                    batch_chunks = processed_chunks[i:i + batch_size]
+                    batch_embeddings = embeddings[i:i + batch_size]
+                    batch_ids = [f"chunk_{i + j}" for j in range(len(batch_chunks))]
+                    
+                    print(f"💾 Storing batch {i//batch_size + 1} with {len(batch_chunks)} chunks")
+                    collection.add(
+                        embeddings=batch_embeddings,
+                        documents=batch_chunks,
+                        ids=batch_ids
+                    )
+                
+                print(f"💾 Successfully stored {len(processed_chunks)} chunks in vector database")
+                print(f"📊 Final collection count: {collection.count()}")
+            except Exception as e:
+                print(f"❌ Error storing in ChromaDB: {e}")
+                logger.error(f"Error storing in ChromaDB: {e}")
+        else:
+            print("❌ No ChromaDB client available")
         
         processing_time = time.time() - start_time
         
@@ -309,8 +324,28 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         
         # Fast context organization - NO DOCUMENT REFERENCES
         context_parts = []
-        for doc in relevant_docs['documents'][0]:
-            context_parts.append(f"{doc}")
+        
+        # Debug the structure of relevant_docs
+        print(f"🔍 DEBUG: relevant_docs keys: {list(relevant_docs.keys())}")
+        print(f"🔍 DEBUG: relevant_docs['documents'] type: {type(relevant_docs['documents'])}")
+        print(f"🔍 DEBUG: relevant_docs['documents'][0] type: {type(relevant_docs['documents'][0])}")
+        print(f"🔍 DEBUG: relevant_docs['documents'][0] length: {len(relevant_docs['documents'][0])}")
+        
+        for i, doc in enumerate(relevant_docs['documents'][0]):
+            print(f"🔍 DEBUG: Document {i} type: {type(doc)}")
+            print(f"🔍 DEBUG: Document {i} preview: {str(doc)[:100]}...")
+            
+            # Handle both string and dictionary document formats
+            if isinstance(doc, dict):
+                if 'page_content' in doc:
+                    context_parts.append(doc['page_content'])
+                    print(f"🔍 DEBUG: Added page_content for doc {i}")
+                else:
+                    context_parts.append(str(doc))
+                    print(f"🔍 DEBUG: Added str(doc) for doc {i}")
+            else:
+                context_parts.append(str(doc))
+                print(f"🔍 DEBUG: Added str(doc) for doc {i}")
         
         context_text = "\n".join(context_parts)
         

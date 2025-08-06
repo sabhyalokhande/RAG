@@ -201,19 +201,21 @@ async def hackrx_run():
             def __init__(self, content, filename):
                 self.content = content
                 self.filename = filename
-                self.read_called = False
+
                 self.position = 0
             
             def read(self, size=None):
-                if not self.read_called:
-                    self.read_called = True
-                    if size is None:
-                        return self.content
-                    else:
-                        result = self.content[:size]
-                        self.content = self.content[size:]
-                        return result
-                return b''
+                if size is None:
+                    # Return all remaining content
+                    result = self.content[self.position:]
+                    self.position = len(self.content)
+                    return result
+                else:
+                    # Return specified size
+                    end_pos = min(self.position + size, len(self.content))
+                    result = self.content[self.position:end_pos]
+                    self.position = end_pos
+                    return result
             
             def seek(self, offset, whence=0):
                 if whence == 0:
@@ -226,6 +228,9 @@ async def hackrx_run():
             
             def tell(self):
                 return self.position
+            
+            def seekable(self):
+                return True
         
         # Detect file type from URL
         file_extension = None
@@ -261,7 +266,11 @@ async def hackrx_run():
             print(f"🎯 Using specialized prompt for: {file_extension or 'document'}")
         
         # Process document with parallel operations
+        print(f"🔍 CALLING process_and_store_document_fast")
+        print(f"🔍 Collection name: {collection_name}")
+        print(f"🔍 ChromaDB client: {'Available' if chroma_client else 'Not available'}")
         document_result = await process_and_store_document_fast(file_obj, collection_name, chroma_client, file_extension)
+        print(f"🔍 Document result: {document_result}")
         
         if "error" in document_result:
             logger.error(f"Document processing failed: {document_result['error']}")
