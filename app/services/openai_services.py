@@ -168,25 +168,11 @@ async def process_and_store_document_fast(file, collection_name: str, chroma_cli
     """Fast document processing with parallel operations."""
     start_time = time.time()
     
-    print(f"🔍 DOCUMENT PROCESSING STARTED")
-    print(f"🔍 Collection name: {collection_name}")
-    print(f"🔍 ChromaDB client: {'Available' if chroma_client else 'Not available'}")
-    print(f"🔍 File extension: {file_extension}")
-    
     try:
         # Extract text in parallel using the proper extraction function
         loop = asyncio.get_event_loop()
         from app.services.utils import extract_text_from_file
         text = await loop.run_in_executor(None, extract_text_from_file, file)
-        
-        print("\n" + "="*80)
-        print("🔍 DOCUMENT PROCESSING DEBUG")
-        print("="*80)
-        print(f"📄 Extracted text length: {len(text)}")
-        print(f"📄 Extracted text preview: {text[:500]}...")
-        print(f"📄 Full extracted text:")
-        print(text)
-        print("="*80)
         
         if not text:
             return {"error": "No text extracted from document"}
@@ -194,43 +180,29 @@ async def process_and_store_document_fast(file, collection_name: str, chroma_cli
         # Clean text based on file type
         from app.services.utils import clean_text, clean_text_for_images
         if file_extension and file_extension.lower() in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
-            print("🧹 Using specialized image text cleaning")
             text = clean_text_for_images(text)
         else:
-            print("🧹 Using standard text cleaning")
             text = clean_text(text)
-        
-        print(f"🧹 Cleaned text length: {len(text)}")
-        print(f"🧹 Cleaned text preview: {text[:500]}...")
         
         # Chunk text in parallel
         chunks = await loop.run_in_executor(None, chunk_text_advanced, text)
-        print(f"✂️  Generated {len(chunks)} chunks")
-        for i, chunk in enumerate(chunks[:3]):  # Show first 3 chunks
-            print(f"✂️  Chunk {i+1}: {chunk[:200]}...")
         
         # Process chunks in parallel
         processed_chunks = await loop.run_in_executor(None, process_chunks_parallel, chunks, "")
-        print(f"⚙️  Processed {len(processed_chunks)} chunks")
-        for i, chunk in enumerate(processed_chunks[:3]):  # Show first 3 processed chunks
-            print(f"⚙️  Processed Chunk {i+1}: {chunk[:200]}...")
         
         if not processed_chunks:
             return {"error": "No valid chunks generated"}
         
         # Generate embeddings in parallel
         embeddings = await get_embeddings_parallel(processed_chunks)
-        print(f"🔢 Generated {len(embeddings)} embeddings")
         
         if not embeddings:
             return {"error": "Failed to generate embeddings"}
         
         # Store in vector database
         if chroma_client:
-            print(f"🔍 ChromaDB client available, creating/getting collection: {collection_name}")
             try:
                 collection = chroma_client.get_or_create_collection(collection_name)
-                print(f"✅ Collection {collection_name} ready")
                 
                 # Store in batches for speed
                 batch_size = 100
@@ -239,15 +211,12 @@ async def process_and_store_document_fast(file, collection_name: str, chroma_cli
                     batch_embeddings = embeddings[i:i + batch_size]
                     batch_ids = [f"chunk_{i + j}" for j in range(len(batch_chunks))]
                     
-                    print(f"💾 Storing batch {i//batch_size + 1} with {len(batch_chunks)} chunks")
                     collection.add(
                         embeddings=batch_embeddings,
                         documents=batch_chunks,
                         ids=batch_ids
                     )
                 
-                print(f"💾 Successfully stored {len(processed_chunks)} chunks in vector database")
-                print(f"📊 Final collection count: {collection.count()}")
             except Exception as e:
                 print(f"❌ Error storing in ChromaDB: {e}")
                 logger.error(f"Error storing in ChromaDB: {e}")
@@ -273,15 +242,9 @@ async def query_vector_db_fast(query: str, collection_name: str, top_k: int = No
     try:
         top_k = top_k or Config.SIMILARITY_TOP_K
         
-        print(f"\n🔍 VECTOR SEARCH DEBUG")
-        print(f"🔍 Query: {query}")
-        print(f"🔍 Collection: {collection_name}")
-        print(f"🔍 Top K: {top_k}")
-        
         # Get query embedding
         query_embedding = await get_embeddings_parallel([query])
         if not query_embedding:
-            print("❌ Failed to generate query embedding")
             return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
         
         # Query vector database
@@ -294,16 +257,9 @@ async def query_vector_db_fast(query: str, collection_name: str, top_k: int = No
                 include=["documents", "metadatas", "distances"]
             )
             
-            print(f"🔍 Retrieved {len(results['documents'][0])} documents")
-            for i, doc in enumerate(results['documents'][0][:3]):  # Show first 3 results
-                print(f"🔍 Result {i+1}: {doc[:200]}...")
-                if 'distances' in results and results['distances'][0]:
-                    print(f"🔍 Distance {i+1}: {results['distances'][0][i]}")
-            
             return results
         else:
             # Fallback to empty results
-            print("❌ No chroma client available")
             return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
             
     except Exception as e:
@@ -325,41 +281,20 @@ def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, to
         # Fast context organization - NO DOCUMENT REFERENCES
         context_parts = []
         
-        # Debug the structure of relevant_docs
-        print(f"🔍 DEBUG: relevant_docs keys: {list(relevant_docs.keys())}")
-        print(f"🔍 DEBUG: relevant_docs['documents'] type: {type(relevant_docs['documents'])}")
-        print(f"🔍 DEBUG: relevant_docs['documents'][0] type: {type(relevant_docs['documents'][0])}")
-        print(f"🔍 DEBUG: relevant_docs['documents'][0] length: {len(relevant_docs['documents'][0])}")
-        
         for i, doc in enumerate(relevant_docs['documents'][0]):
-            print(f"🔍 DEBUG: Document {i} type: {type(doc)}")
-            print(f"🔍 DEBUG: Document {i} preview: {str(doc)[:100]}...")
-            
             # Handle both string and dictionary document formats
             if isinstance(doc, dict):
                 if 'page_content' in doc:
                     context_parts.append(doc['page_content'])
-                    print(f"🔍 DEBUG: Added page_content for doc {i}")
                 else:
                     context_parts.append(str(doc))
-                    print(f"🔍 DEBUG: Added str(doc) for doc {i}")
             else:
                 context_parts.append(str(doc))
-                print(f"🔍 DEBUG: Added str(doc) for doc {i}")
         
         context_text = "\n".join(context_parts)
         
-        print(f"\n🔍 PROMPT CONSTRUCTION DEBUG")
-        print(f"🔍 Query: {query}")
-        print(f"🔍 File extension: {file_extension}")
-        print(f"🔍 Context length: {len(context_text)}")
-        print(f"🔍 Context preview: {context_text[:500]}...")
-        print(f"🔍 Full context:")
-        print(context_text)
-        
         # Check if context is empty or very minimal (but allow image content which can be short)
         if not context_text.strip():
-            print("⚠️  Context is completely empty")
             return f"""You are an AI assistant for {org_name}, {org_description}.
 
 CRITICAL INSTRUCTION: The provided context contains insufficient or no relevant information to answer the question. 
@@ -370,9 +305,8 @@ Response: I cannot provide an answer to this question based on the available doc
         
         # For image files, allow shorter context (OCR can produce short but meaningful text)
         if file_extension and file_extension.lower() in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
-            print(f"🔍 Image file detected, allowing short context ({len(context_text.strip())} chars)")
+            pass  # Allow short context for images
         elif len(context_text.strip()) < 50:
-            print("⚠️  Context is too minimal for non-image files")
             return f"""You are an AI assistant for {org_name}, {org_description}.
 
 CRITICAL INSTRUCTION: The provided context contains insufficient or no relevant information to answer the question. 
@@ -389,14 +323,6 @@ Response: I cannot provide an answer to this question based on the available doc
         # Get file-type specific prompt if no document-specific prompt
         if not document_specific_prompt and file_extension:
             document_specific_prompt = get_file_type_prompt(file_extension)
-            print(f"🔍 Using file-type specific prompt for: {file_extension}")
-            if document_specific_prompt:
-                print(f"🔍 File-type prompt found: {document_specific_prompt[:200]}...")
-            else:
-                print(f"❌ No file-type prompt found for: {file_extension}")
-        
-        if document_specific_prompt:
-            print(f"🔍 Document-specific prompt preview: {document_specific_prompt[:200]}...")
         
         # ENHANCED INTELLIGENT ANSWER prompt with document-specific detection
         intelligence_specification = f"""You are an AI assistant for {org_name}, {org_description}.
@@ -427,21 +353,34 @@ CRITICAL GUIDELINES:
 22. PLAIN TEXT: Write in plain text only, no formatting whatsoever.
 23. FLOWING PARAGRAPH: Make your response flow naturally as one continuous paragraph.
 
+CRITICAL COUNTING INSTRUCTIONS:
+24. **ACCURATE COUNTING**: When asked to count entries (e.g., "How many X exists"), you MUST:
+    - Scan EVERY SINGLE piece of text in the document
+    - Count each occurrence EXACTLY once
+    - Do NOT double-count or miss any entries
+    - Provide the EXACT count, not an estimate
+    - List ALL locations where the item appears
+    - If you find 4 entries, say "4 entries" not "5 entries"
+    - If you find 3 entries, say "3 entries" not "4 entries"
+    - Be PRECISE and ACCURATE in your counting
+    - Do NOT guess or estimate - count exactly what you see
+
 INTELLIGENT REASONING APPROACH:
-24. DOCUMENT ANALYSIS: First, understand the document type and its primary purpose.
-25. CONTENT MAPPING: Identify key topics, sections, and information within the document.
-26. QUESTION CONTEXTUALIZATION: Determine if the question relates to the document's subject matter.
-27. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
-28. LOGICAL INFERENCE: Apply logical reasoning to connect information and draw conclusions.
-29. SYNTHESIS: Combine information from multiple parts to provide comprehensive answers.
-30. VALIDATION: Ensure all information comes from the document content.
-31. COMPLETENESS: Provide complete answers when information is available in the document.
+25. DOCUMENT ANALYSIS: First, understand the document type and its primary purpose.
+26. CONTENT MAPPING: Identify key topics, sections, and information within the document.
+27. QUESTION CONTEXTUALIZATION: Determine if the question relates to the document's subject matter.
+28. INFORMATION EXTRACTION: Extract relevant information using various search strategies.
+29. LOGICAL INFERENCE: Apply logical reasoning to connect information and draw conclusions.
+30. SYNTHESIS: Combine information from multiple parts to provide comprehensive answers.
+31. VALIDATION: Ensure all information comes from the document content.
+32. COMPLETENESS: Provide complete answers when information is available in the document.
 
 INTELLIGENT QUESTION HANDLING:
 - For questions related to the document's subject matter but not directly addressed: Provide general knowledge answer and clarify it's not from the document
 - For completely unrelated questions: Reject appropriately
 - Examples of related questions to answer with general knowledge: asking about disc brakes when document is about motorcycles, asking about oil types when document is about vehicles
 - Examples of unrelated questions to reject: asking about JavaScript code when document is about vehicles, asking about cooking recipes when document is about insurance
+- For counting questions: ALWAYS scan all content and provide the EXACT count with ALL location references
 
 RESPONSE FORMAT REQUIREMENTS:
 - Write in ONE SINGLE PARAGRAPH only
@@ -450,7 +389,8 @@ RESPONSE FORMAT REQUIREMENTS:
 - No bullet points or numbered lists
 - Plain text only with natural flowing sentences
 - Connect all information seamlessly in one paragraph
-- When providing general knowledge: Start with "While this document doesn't specifically address..." or similar clarification"""
+- When providing general knowledge: Start with "While this document doesn't specifically address..." or similar clarification
+- For counting: Provide EXACT count and list ALL locations where items appear"""
         
         # Construct the combined prompt
         if document_specific_prompt:
@@ -460,9 +400,6 @@ RESPONSE FORMAT REQUIREMENTS:
         else:
             # Use only intelligence specification (which includes general guidelines)
             combined_prompt = f"{intelligence_specification}\n\nDocument Content:\n{context_text}\n\nQuestion: {query}\n\nPlease analyze the document content thoroughly and provide a comprehensive answer. If the question is related to the document's subject matter, use intelligent reasoning to provide the best possible answer based on the available information. Only reject questions that are completely unrelated to the document's content."
-        
-        print(f"🔍 Final prompt length: {len(combined_prompt)}")
-        print(f"🔍 Final prompt preview: {combined_prompt[:500]}...")
         
         return combined_prompt
         

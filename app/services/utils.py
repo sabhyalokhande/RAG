@@ -67,62 +67,46 @@ def extract_text_from_file(file) -> str:
     try:
         filename = file.filename.lower()
         
-        print(f"\n🔍 DEBUG: File extraction called with filename: '{filename}'")
-        
         if filename.endswith('.zip'):
-            print("🔍 DEBUG: Routing to ZIP extraction")
             return extract_text_from_zip_fast(file)
         elif filename.endswith('.pdf'):
-            print("🔍 DEBUG: Routing to PDF extraction")
             return extract_text_from_pdf_fast(file)
         elif filename.endswith(('.docx', '.doc')):
-            print("🔍 DEBUG: Routing to DOCX extraction")
             return extract_text_from_docx_fast(file)
         elif filename.endswith('.pptx'):
-            print("🔍 DEBUG: Routing to PPTX extraction")
             return extract_text_from_pptx_fast(file)
         elif filename.endswith(('.xlsx', '.xls')):
-            print("🔍 DEBUG: Routing to Excel extraction")
             return extract_text_from_excel_fast(file)
         elif filename.endswith('.csv'):
-            print("🔍 DEBUG: Routing to CSV extraction")
             return extract_text_from_csv_fast(file)
         elif filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')):
-            print("🔍 DEBUG: Routing to IMAGE extraction")
             return extract_text_from_image_fast(file)
         else:
-            print(f"🔍 DEBUG: Routing to TEXT extraction (unknown file type)")
             # For other file types, read as text
             content = file.read()
             return content.decode('utf-8', errors='ignore')
             
     except Exception as e:
         logger.error(f"Error extracting text from file: {e}")
-        print(f"❌ DEBUG: Error in extract_text_from_file: {e}")
         return ""
 
 def extract_text_from_pdf_fast(file) -> str:
     """Ultra-fast PDF text extraction optimized for large files (<30s target)."""
     try:
-        print("🔍 DEBUG: PDF extraction function called")
         from pypdf import PdfReader
         
         # Read PDF in memory
         pdf_reader = PdfReader(file)
         total_pages = len(pdf_reader.pages)
-        print(f"🔍 DEBUG: PDF has {total_pages} pages")
         
         # For large PDFs (>100 pages), use intelligent sampling
         if total_pages > 100:
-            print(f"🔍 DEBUG: Large PDF detected ({total_pages} pages), using intelligent sampling")
             return extract_text_from_large_pdf_fast(pdf_reader, total_pages)
         else:
-            print(f"🔍 DEBUG: Small PDF detected ({total_pages} pages), using full extraction")
             return extract_text_from_small_pdf_fast(pdf_reader, total_pages)
         
     except Exception as e:
         logger.error(f"Error extracting PDF text: {e}")
-        print(f"❌ DEBUG: Error in PDF extraction: {e}")
         return ""
 
 def extract_text_from_large_pdf_fast(pdf_reader, total_pages: int) -> str:
@@ -150,8 +134,6 @@ def extract_text_from_large_pdf_fast(pdf_reader, total_pages: int) -> str:
             if len(pages_to_extract) < max_pages_to_process:
                 pages_to_extract.append(i)
     
-    print(f"🔍 DEBUG: Sampling {len(pages_to_extract)} pages from {total_pages} total pages")
-    
     def extract_sampled_page_text(page_index):
         try:
             return pdf_reader.pages[page_index].extract_text()
@@ -164,7 +146,6 @@ def extract_text_from_large_pdf_fast(pdf_reader, total_pages: int) -> str:
     
     # Combine all texts
     full_text = " ".join(texts)
-    print(f"🔍 DEBUG: Large PDF extracted text length: {len(full_text)}")
     return clean_text_fast(full_text)
 
 def extract_text_from_small_pdf_fast(pdf_reader, total_pages: int) -> str:
@@ -181,22 +162,17 @@ def extract_text_from_small_pdf_fast(pdf_reader, total_pages: int) -> str:
     
     # Combine all texts
     full_text = " ".join(texts)
-    print(f"🔍 DEBUG: Small PDF extracted text length: {len(full_text)}")
     return clean_text(full_text)
 
 def extract_text_from_docx_fast(file) -> str:
     """Fast DOCX text extraction."""
     try:
         import docx2txt
-        print(f"🔍 DEBUG: DOCX extraction started")
         text = docx2txt.process(file)
-        print(f"🔍 DEBUG: DOCX extraction completed, text length: {len(text)}")
         cleaned_text = clean_text(text)
-        print(f"🔍 DEBUG: DOCX text cleaned, length: {len(cleaned_text)}")
         return cleaned_text
     except Exception as e:
         logger.error(f"Error extracting DOCX text: {e}")
-        print(f"❌ DEBUG: DOCX extraction error: {e}")
         return ""
 
 def chunk_text_advanced(text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
@@ -210,7 +186,6 @@ def chunk_text_advanced(text: str, chunk_size: Optional[int] = None, overlap: Op
     
     # For very large texts (>500KB), use ultra-fast chunking
     if len(text) > 500000:  # 500KB threshold
-        print(f"🔍 DEBUG: Large text detected ({len(text)} chars), using ultra-fast chunking")
         return chunk_text_ultra_fast(text, chunk_size, overlap)
     
     # Special handling for Excel data to preserve all rows for numerical comparisons
@@ -357,8 +332,6 @@ def chunk_text_ultra_fast(text: str, chunk_size: int, overlap: int) -> List[str]
     max_chunks = min(100, len(text) // chunk_size)
     words_per_chunk = max(1, len(words) // max_chunks)
     
-    print(f"🔍 DEBUG: Ultra-fast chunking: {len(words)} words, {words_per_chunk} words per chunk, max {max_chunks} chunks")
-    
     for i in range(0, len(words), words_per_chunk):
         chunk_words = words[i:i + words_per_chunk]
         chunk_text = " ".join(chunk_words)
@@ -370,7 +343,6 @@ def chunk_text_ultra_fast(text: str, chunk_size: int, overlap: int) -> List[str]
         if len(chunks) >= max_chunks:
             break
     
-    print(f"🔍 DEBUG: Ultra-fast chunking generated {len(chunks)} chunks")
     return chunks
 
 def chunk_text_parallel(text: str, chunk_size: int, overlap: int) -> List[str]:
@@ -486,7 +458,7 @@ def is_high_quality_chunk(chunk: str) -> bool:
     
     return True
 
-def enhance_context_for_accuracy(chunk: str, context_window: int = None) -> str:
+def enhance_context_for_accuracy(chunk: str, context_window: Optional[int] = None) -> str:
     """Fast context enhancement for speed optimization."""
     if not chunk:
         return chunk
@@ -574,7 +546,7 @@ def get_related_terms() -> Dict[str, List[str]]:
         'icu': ['intensive', 'care', 'unit', 'critical', 'emergency']
     }
 
-def truncate_text_for_embeddings(text: str, max_tokens: int = None) -> str:
+def truncate_text_for_embeddings(text: str, max_tokens: Optional[int] = None) -> str:
     """Fast text truncation for embedding generation."""
     if not text:
         return ""
@@ -681,10 +653,12 @@ def optimize_for_speed():
 optimize_for_speed() 
 
 def extract_text_from_pptx_fast(file) -> str:
-    """Fast PowerPoint text extraction with slide structure preservation."""
+    """Fast PowerPoint text extraction with slide structure preservation and image OCR."""
     try:
         from pptx import Presentation
         from io import BytesIO
+        import tempfile
+        import os
         
         # Read PPTX in memory
         prs = Presentation(BytesIO(file.read()))
@@ -696,19 +670,44 @@ def extract_text_from_pptx_fast(file) -> str:
             
             # Extract text from shapes
             for shape in slide.shapes:
-                if hasattr(shape, "text") and shape.text.strip():
-                    slide_text.append(f"  {shape.text.strip()}")
+                # Extract text from text shapes
+                try:
+                    # Check if shape has text attribute
+                    if hasattr(shape, "text"):
+                        text_content = getattr(shape, "text", "")
+                        if text_content and isinstance(text_content, str):
+                            text_content = text_content.strip()
+                            if text_content:
+                                slide_text.append(f"  {text_content}")
+                except (AttributeError, TypeError):
+                    pass
                 
                 # Extract text from tables
-                if shape.has_table:
-                    table = shape.table
-                    for row in table.rows:
-                        row_text = []
-                        for cell in row.cells:
-                            if cell.text.strip():
-                                row_text.append(cell.text.strip())
-                        if row_text:
-                            slide_text.append(f"    {' | '.join(row_text)}")
+                try:
+                    # Check if shape has table attribute
+                    if hasattr(shape, "has_table") and getattr(shape, "has_table", False):
+                        table = getattr(shape, "table", None)
+                        if table:
+                            for row in table.rows:
+                                row_text = []
+                                for cell in row.cells:
+                                    cell_text = getattr(cell, "text", "")
+                                    if cell_text and isinstance(cell_text, str) and cell_text.strip():
+                                        row_text.append(cell_text.strip())
+                                if row_text:
+                                    slide_text.append(f"    {' | '.join(row_text)}")
+                except (AttributeError, TypeError):
+                    pass
+                
+                # Extract text from images using OCR
+                try:
+                    # Check if shape is a picture
+                    if hasattr(shape, "shape_type") and getattr(shape, "shape_type", 0) == 13:  # Picture shape type
+                        image_text = extract_text_from_pptx_image(shape)
+                        if image_text and image_text.strip():
+                            slide_text.append(f"  IMAGE TEXT: {image_text.strip()}")
+                except Exception as e:
+                    logger.warning(f"Failed to extract text from image in slide {slide_num}: {e}")
             
             if len(slide_text) > 1:  # More than just slide number
                 extracted_text.extend(slide_text)
@@ -717,19 +716,82 @@ def extract_text_from_pptx_fast(file) -> str:
         # Extract notes if enabled (but filter out placeholder content)
         if Config.PPT_EXTRACT_NOTES:
             for slide_num, slide in enumerate(prs.slides, 1):
-                if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
-                    notes_text = slide.notes_slide.notes_text_frame.text.strip()
-                    
-                    # Temporarily include all notes to see what content exists
-                    extracted_text.append(f"SLIDE {slide_num} NOTES:")
-                    extracted_text.append(f"  {notes_text}")
-                    extracted_text.append("")
+                try:
+                    if (hasattr(slide, "has_notes_slide") and 
+                        getattr(slide, "has_notes_slide", False) and 
+                        hasattr(slide, "notes_slide") and 
+                        getattr(slide, "notes_slide", None) and
+                        hasattr(slide.notes_slide, "notes_text_frame") and
+                        getattr(slide.notes_slide, "notes_text_frame", None) and
+                        hasattr(slide.notes_slide.notes_text_frame, "text")):
+                        
+                        notes_text_frame = slide.notes_slide.notes_text_frame
+                        if notes_text_frame and hasattr(notes_text_frame, "text"):
+                            notes_text = getattr(notes_text_frame, "text", "")
+                            if notes_text and isinstance(notes_text, str):
+                                notes_text = notes_text.strip()
+                                if notes_text:
+                                    # Temporarily include all notes to see what content exists
+                                    extracted_text.append(f"SLIDE {slide_num} NOTES:")
+                                    extracted_text.append(f"  {notes_text}")
+                                    extracted_text.append("")
+                except (AttributeError, TypeError):
+                    pass
         
         full_text = "\n".join(extracted_text)
         return clean_text(full_text)
         
     except Exception as e:
         logger.error(f"Error extracting PPTX text: {e}")
+        return ""
+
+def extract_text_from_pptx_image(shape) -> str:
+    """Extract text from an image in a PowerPoint slide using pytesseract OCR."""
+    try:
+        import pytesseract
+        from PIL import Image
+        import tempfile
+        import os
+        
+        # Get the image from the shape
+        if not hasattr(shape, "image") or not shape.image:
+            return ""
+            
+        image = shape.image
+        
+        # Save image to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+            temp_file.write(image.blob)
+            temp_path = temp_file.name
+        
+        try:
+            # Open image with PIL
+            pil_image = Image.open(temp_path)
+            
+            # Use pytesseract to extract text
+            # Configure pytesseract for better accuracy
+            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?()[]{}@#$%&*+-=/<>|_~`"\'\\'
+            
+            extracted_text = pytesseract.image_to_string(pil_image, config=custom_config)
+            
+            # Clean up the extracted text
+            if extracted_text:
+                # Remove extra whitespace and normalize
+                extracted_text = re.sub(r'\s+', ' ', extracted_text.strip())
+                return extracted_text
+            
+            return ""
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+                
+    except ImportError:
+        logger.warning("pytesseract not available. Install it with: pip install pytesseract")
+        return ""
+    except Exception as e:
+        logger.warning(f"Error extracting text from PPTX image: {e}")
         return ""
 
 def extract_text_from_excel_fast(file) -> str:
@@ -846,8 +908,6 @@ def extract_text_from_zip_fast(file) -> str:
         from io import BytesIO
         import os
         
-        print("🔍 DEBUG: ZIP extraction started")
-        
         # Read ZIP file in memory
         zip_bytes = file.read()
         zip_file = zipfile.ZipFile(BytesIO(zip_bytes))
@@ -856,19 +916,13 @@ def extract_text_from_zip_fast(file) -> str:
         processed_files = 0
         max_files = Config.MAX_ZIP_FILES  # Limit files to process
         
-        print(f"🔍 DEBUG: ZIP contains {len(zip_file.namelist())} files")
-        
         # Check for recursive ZIP structure
         zip_files = [f for f in zip_file.namelist() if f.lower().endswith('.zip')]
         non_zip_files = [f for f in zip_file.namelist() if not f.lower().endswith('.zip')]
         
         # If all files are ZIPs, this might be a recursive structure
         if len(zip_files) > 0 and len(non_zip_files) == 0:
-            print(f"🔍 DEBUG: Detected potential recursive ZIP structure with {len(zip_files)} nested ZIP files")
-            
-            # Check if it's the same ZIP files repeated (recursive structure)
-            if len(set(zip_files)) == 1 or all(f.endswith('.zip') for f in zip_files):
-                recursive_message = f"""
+            recursive_message = f"""
 ZIP STRUCTURE ANALYSIS:
 This ZIP file contains {len(zip_files)} nested ZIP files: {', '.join(zip_files[:5])}{'...' if len(zip_files) > 5 else ''}
 
@@ -887,8 +941,7 @@ STRUCTURE ANALYSIS:
 RECOMMENDATION:
 This ZIP file contains a recursive structure that prevents access to actual document content. The system has reached the maximum safe depth (6 levels) to prevent infinite loops.
 """
-                print("🔍 DEBUG: Returning recursive structure analysis")
-                return recursive_message
+            return recursive_message
         
         # Function to extract from deeply nested ZIPs
         def extract_deep_zip(current_zip, current_path="", max_depth=6):
@@ -905,7 +958,6 @@ This ZIP file contains a recursive structure that prevents access to actual docu
                     return
                     
                 try:
-                    print(f"🔍 DEBUG: Processing file: {current_path}/{filename}")
                     
                     with current_zip.open(filename) as zip_entry:
                         # Check file size before reading
@@ -914,7 +966,6 @@ This ZIP file contains a recursive structure that prevents access to actual docu
                         
                         # Skip extremely large files (>100MB) to prevent memory issues
                         if file_size > 100 * 1024 * 1024:  # 100MB
-                            print(f"🔍 DEBUG: Skipping large file {current_path}/{filename} ({file_size} bytes)")
                             extracted_text.append(f"FILE: {current_path}/{filename} (SKIPPED - Too large: {file_size} bytes)")
                             continue
                         
@@ -964,12 +1015,10 @@ This ZIP file contains a recursive structure that prevents access to actual docu
                             extracted_text.append("")  # Empty line between files
                             processed_files += 1
                             
-                            print(f"🔍 DEBUG: Successfully extracted text from {current_path}/{filename} ({len(file_text)} chars)")
                         else:
-                            print(f"🔍 DEBUG: No text extracted from {current_path}/{filename}")
+                            extracted_text.append(f"FILE: {current_path}/{filename} (NO TEXT)")
                             
                 except Exception as e:
-                    print(f"❌ DEBUG: Error processing file {current_path}/{filename}: {e}")
                     extracted_text.append(f"FILE: {current_path}/{filename} (ERROR: {str(e)})")
                     continue
             
@@ -978,7 +1027,6 @@ This ZIP file contains a recursive structure that prevents access to actual docu
                 zip_files = [f for f in current_zip.namelist() if f.lower().endswith('.zip')]
                 if zip_files:
                     next_zip_name = zip_files[0]  # Take the first ZIP
-                    print(f"🔍 DEBUG: Going deeper into {current_path}/{next_zip_name}")
                     
                     try:
                         with current_zip.open(next_zip_name) as next_entry:
@@ -987,7 +1035,6 @@ This ZIP file contains a recursive structure that prevents access to actual docu
                             extract_deep_zip(next_zip, f"{current_path}/{next_zip_name}", max_depth - 1)
                             next_zip.close()
                     except Exception as e:
-                        print(f"❌ DEBUG: Error processing nested ZIP {current_path}/{next_zip_name}: {e}")
                         extracted_text.append(f"NESTED ZIP: {current_path}/{next_zip_name} (ERROR: {str(e)})")
         
         # Start deep extraction
@@ -996,7 +1043,6 @@ This ZIP file contains a recursive structure that prevents access to actual docu
         zip_file.close()
         
         full_text = "\n".join(extracted_text)
-        print(f"🔍 DEBUG: ZIP extraction completed, processed {processed_files} files, total text length: {len(full_text)}")
         
         # If no content was extracted, provide a detailed analysis
         if not full_text.strip():
@@ -1024,7 +1070,6 @@ This appears to be a recursive ZIP structure or contains files that cannot be pr
         
     except Exception as e:
         logger.error(f"Error extracting ZIP text: {e}")
-        print(f"❌ DEBUG: ZIP extraction error: {e}")
         return f"ZIP EXTRACTION ERROR: {str(e)}"
 
 def extract_text_from_image_fast(file) -> str:
@@ -1035,34 +1080,23 @@ def extract_text_from_image_fast(file) -> str:
         from io import BytesIO
         import time
         
-        print("\n" + "="*80)
-        print("🔍 GEMINI API DEBUGGING - UPDATED CODE VERSION")
-        print("="*80)
-        
         # Read image
         image_bytes = file.read()
         image = Image.open(BytesIO(image_bytes))
-        
-        print(f"📸 Image size: {image.size}")
-        print(f"📸 Image mode: {image.mode}")
         
         # Initialize Gemini API
         if not Config.GEMINI_API_KEY:
             print("❌ Gemini API key not configured")
             return ""
         
-        print("🔍 Initializing Gemini API...")
         genai.configure(api_key=Config.GEMINI_API_KEY)
         
         # Initialize Gemini model
-        print(f"🔍 Using Gemini model: {Config.GEMINI_MODEL}")
         model = genai.GenerativeModel(Config.GEMINI_MODEL)
         
         # Prepare image for Gemini API
-        print("🔍 Preparing image for Gemini API...")
         
         # Perform text extraction
-        print("🔍 Performing text extraction with Gemini API...")
         start_time = time.time()
         
         # Create prompt for text extraction
@@ -1082,22 +1116,11 @@ def extract_text_from_image_fast(file) -> str:
         response = model.generate_content([prompt, image])
         
         gemini_time = time.time() - start_time
-        print(f"🔍 Gemini API response time: {gemini_time:.2f}s")
         
         if not response or not response.text:
-            print("❌ Gemini API returned empty response")
             return ""
         
         extracted_text = response.text.strip()
-        
-        print("\n" + "-"*80)
-        print("📝 EXTRACTED TEXT FROM IMAGE (Gemini API):")
-        print("-"*80)
-        print(extracted_text)
-        print("-"*80)
-        print(f"📊 Text length: {len(extracted_text)} characters")
-        print(f"🔍 Gemini API processing time: {gemini_time:.2f}s")
-        print("="*80 + "\n")
         
         # Add a marker to verify this is the updated code
         extracted_text += "\n[UPDATED_CODE_MARKER]"
@@ -1106,7 +1129,6 @@ def extract_text_from_image_fast(file) -> str:
         
     except Exception as e:
         logger.error(f"Error extracting image text with Gemini API: {e}")
-        print(f"❌ Error extracting image text: {e}")
         return ""
 
  

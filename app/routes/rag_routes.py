@@ -239,12 +239,10 @@ async def hackrx_run():
             url_path = documents_url.split('?')[0]  # Remove query parameters
             if '.' in url_path:
                 file_extension = url_path.split('.')[-1].lower()
-                print(f"🔍 DEBUG: Detected file extension: '{file_extension}' from URL: '{documents_url}'")
-                print(f"🔍 DEBUG: URL path after removing query params: '{url_path}'")
             else:
-                print(f"🔍 DEBUG: No file extension found in URL path: '{url_path}'")
+                pass  # No file extension found
         else:
-            print(f"🔍 DEBUG: No '.' found in URL: '{documents_url}'")
+            pass  # No '.' found in URL
         
         # Create file wrapper with correct filename
         filename = f"document.{file_extension}" if file_extension else "document.pdf"
@@ -266,11 +264,7 @@ async def hackrx_run():
             print(f"🎯 Using specialized prompt for: {file_extension or 'document'}")
         
         # Process document with parallel operations
-        print(f"🔍 CALLING process_and_store_document_fast")
-        print(f"🔍 Collection name: {collection_name}")
-        print(f"🔍 ChromaDB client: {'Available' if chroma_client else 'Not available'}")
         document_result = await process_and_store_document_fast(file_obj, collection_name, chroma_client, file_extension)
-        print(f"🔍 Document result: {document_result}")
         
         if "error" in document_result:
             logger.error(f"Document processing failed: {document_result['error']}")
