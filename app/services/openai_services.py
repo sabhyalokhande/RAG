@@ -390,7 +390,18 @@ RESPONSE FORMAT REQUIREMENTS:
 - Plain text only with natural flowing sentences
 - Connect all information seamlessly in one paragraph
 - When providing general knowledge: Start with "While this document doesn't specifically address..." or similar clarification
-- For counting: Provide EXACT count and list ALL locations where items appear"""
+- For counting: Provide EXACT count and list ALL locations where items appear
+
+STEP WISE AGENTIC BEHAVIOUR:
+- whenever asked to do any task within the document break it down in steps and execute them one by one
+- understand the steps and execute them one by one
+- do not skip any steps
+- do not provide any other information than the steps and the results of the steps
+- do not provide any other information than the steps and the results of the steps
+- if it is said to open a website or do any other task, do it and return the result
+- if it asks to check within the website and read html strcutre then do it and get the result
+- if it asks to hit any endpoints then do it dynamically and solve the problem and return the answers
+- answer gracefully and if you really feel the answer is not present in the document then deny gracefully and provide the context in the doc."""
         
         # Construct the combined prompt
         if document_specific_prompt:

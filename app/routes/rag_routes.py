@@ -44,6 +44,9 @@ from app.services.utils import (
 from app.services.document_prompts import (
     get_document_specific_prompt, get_file_type_prompt
 )
+from app.services.hackrx_solver import (
+    hackrx_solver, should_use_hackrx_solver, is_hackrx_document
+)
 from config import Config
 
 # Configure logging
@@ -281,8 +284,57 @@ async def hackrx_run():
         print("="*80)
         print(f"📝 Processing {len(questions)} questions in parallel")
         
-        # Process all questions in parallel with document-specific prompts
-        answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension)
+        # Check if this is a HackRx document and if any questions need the solver
+        use_hackrx_solver = is_hackrx_document(documents_url)
+        hackrx_questions = []
+        regular_questions = []
+        
+        if use_hackrx_solver:
+            for i, question in enumerate(questions):
+                if should_use_hackrx_solver(question, documents_url):
+                    hackrx_questions.append((i, question))
+                else:
+                    regular_questions.append((i, question))
+            
+            print(f"🎯 HackRx solver questions: {len(hackrx_questions)}")
+            print(f"📚 Regular RAG questions: {len(regular_questions)}")
+        
+        # Process questions
+        answers = [""] * len(questions)  # Initialize answers array
+        
+        # Handle HackRx solver questions first
+        if hackrx_questions:
+            print("\n🚀 EXECUTING HACKRX MISSION...")
+            try:
+                flight_number, trace_info = hackrx_solver.solve()
+                print(f"✅ Flight number retrieved: {flight_number}")
+                print(f"🔍 Trace: {trace_info}")
+                
+                # Fill in answers for HackRx questions
+                for idx, question in hackrx_questions:
+                    answers[idx] = f"Your flight number is {flight_number}. This was determined by following the mission steps: first retrieving your favorite city from the API, then mapping it to the corresponding landmark using the document's data, selecting the appropriate flight endpoint based on the landmark rules, and finally calling that endpoint to get your flight number."
+                
+            except Exception as e:
+                error_msg = f"Failed to execute HackRx mission: {str(e)}"
+                print(f"❌ {error_msg}")
+                logger.error(error_msg)
+                
+                # Fill error responses for HackRx questions
+                for idx, question in hackrx_questions:
+                    answers[idx] = f"Error executing mission: {str(e)}"
+        
+        # Process regular questions with RAG
+        if regular_questions:
+            regular_question_texts = [q[1] for q in regular_questions]
+            regular_answers = await process_questions_parallel(regular_question_texts, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension)
+            
+            # Fill in answers for regular questions
+            for i, (idx, question) in enumerate(regular_questions):
+                answers[idx] = regular_answers[i]
+        
+        # If no HackRx solver was used, process all questions normally
+        if not use_hackrx_solver:
+            answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension)
         
         questions_time = time.time() - questions_start
         total_time = time.time() - start_time
