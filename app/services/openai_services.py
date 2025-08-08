@@ -324,6 +324,10 @@ Response: I cannot provide an answer to this question based on the available doc
         if not document_specific_prompt and file_extension:
             document_specific_prompt = get_file_type_prompt(file_extension)
         
+        # Use document-specific prompt if available, otherwise use generic prompt
+        if document_specific_prompt:
+            return f"{document_specific_prompt}\n\nDocument Information: {context_text}\n\nQuestion: {query}\n\nProvide a comprehensive, accurate, and helpful response based on the document information above."
+        
         # ENHANCED INTELLIGENT ANSWER prompt with document-specific detection
         intelligence_specification = f"""You are an AI assistant for {org_name}, {org_description}.
 Provide comprehensive answers based on intelligent analysis of the document content.
