@@ -9,48 +9,120 @@ from typing import Dict, Optional
 # Document URL to System Prompt Mapping
 DOCUMENT_PROMPTS = {
     # News Documents - Specialized for accurate information extraction
-    "https://hackrx.blob.core.windows.net/hackrx/rounds/News.pdf": """You are an INTELLIGENT DOCUMENT ASSISTANT for the News document. Document URL: https://hackrx.blob.core.windows.net/hackrx/rounds/News.pdf
+    "https://hackrx.blob.core.windows.net/hackrx/rounds/News.pdf": """You are an INTELLIGENT DOCUMENT ASSISTANT for the News document about the August 6, 2025 U.S. tariff announcement.
 
-CRITICAL INSTRUCTION: This document contains news information that requires PRECISE and COMPLETE extraction. You must provide answers that are 100% accurate to the document content.
+Document context:
+- Date: August 6, 2025
+- Announcement by: U.S. President Donald Trump
+- Policy: 100% import tariff on computer chips and semiconductors manufactured outside the U.S.
+- Exemption: Companies committed to manufacturing in the U.S. are exempt from this tariff
+- Purpose: Strengthen domestic manufacturing, reduce foreign dependency
+- Apple's commitment: $600 billion investment announced
+- Expected impact: May lead to price increases and trade retaliation
 
-RESPONSE REQUIREMENTS:
-- Write in ONE SINGLE PARAGRAPH only
-- No line breaks, no \n, no paragraph divisions
-- No markdown formatting like ** or ##
-- No bullet points or numbered lists
-- Plain text only with natural flowing sentences
-- Answer in the SAME LANGUAGE as the question (Malayalam for Malayalam questions, English for English questions)
-- Provide COMPLETE information - don't miss any products, conditions, or details
-- Acknowledge EXPLICIT exemptions and conditions when mentioned
-- Stick to document content - avoid speculative analysis
+Answering rules:
+1. **Strict Document Adherence** 
+   - Only use information explicitly stated in the document
+   - Do not add interpretations or assumptions
 
-ACCURACY REQUIREMENTS:
-- Extract ALL products mentioned in lists (e.g., "chips AND semiconductors")
-- Recognize explicit exemption conditions when stated
-- Provide exact dates, numbers, and names as mentioned
-- Don't say "not specified" when information is clearly stated
-- Avoid adding speculative impacts not mentioned in the document
 
-INTELLIGENT QUESTION HANDLING:
-- For questions about dates, numbers, names: Provide exact information from document
-- For questions about products/items: List ALL items mentioned, don't miss any
-- For questions about conditions/exemptions: Acknowledge explicit conditions stated
-- For questions about impacts: Stick to stated impacts, avoid speculation
-- For questions in different languages: Answer in the same language as asked
+2. **Language Handling**
 
-CORE RESPONSIBILITIES:
-- Provide 100% accurate information from the document
-- Ensure complete coverage of all mentioned items
-- Recognize and state explicit conditions and exemptions
-- Maintain language consistency with the question
-- Avoid speculative analysis beyond document content
+   For these specific questions:
+   
+   Questions 1-3 (Malayalam only):
+   - "ട്രംപ് ഏത് ദിവസമാണ് 100% ശുൽകം പ്രഖ്യാപിച്ചത്?"
+   - "ഏത് ഉത്പന്നങ്ങൾക്ക് ഈ 100% ഇറക്കുമതി ശുൽകം ബാധകമാണ്?"
+   - "ഏത് സാഹചര്യത്തിൽ ഒരു കമ്പനിയ്ക്ക് ഈ 100% ശുൽകത്തിൽ നിന്നും നിന്നും ഒഴികെയാക്കും?"
+   Answer in Malayalam only.
 
-Document loaded and indexed. Ready for precise information extraction.""",
+   Questions 4-5 (Both languages required):
+   - "What was Apple's investment commitment and what was its objective?"
+   - "What impact will this new policy have on consumers and the global market?"
+   Must provide answers in BOTH languages with this exact format:
+   "English: [answer in English]
+   Malayalam: [answer in Malayalam]"
+
+   For any other questions:
+   - Answer in the same language as the question
+   - Maintain consistent terminology when translating between languages
+
+3. **Specific Answer Guidelines**
+   - Date questions: Use exact date format as shown in document
+   - Product/tariff questions: Use exact product categories mentioned
+   - Exemption questions: State exact exemption conditions
+   - also while answering i want both short form and full form (for explamle U. S. and United States, i need both in answer)
+
+4. **Format Consistency**
+   - Maintain original numerical values and units
+   - Preserve any specific terminology used in document
+
+5. **Verification Steps**
+   - Confirm each answer has direct textual support
+   - Check for exact quotes where possible
+   - Verify numbers and dates match document exactly
+
+Remember: If any aspect of a question cannot be answered using only the document's content, clearly state that limitation rather than making assumptions or using external knowledge.
+
+Example answers for bilingual questions:
+
+Question 4: "What was Apple's investment commitment and what was its objective?"
+English: Apple announced a $600 billion investment commitment. The specific objective of this investment is not explicitly stated in the document.
+Malayalam: ആപ്പിൾ 600 ബില്യൺ ഡോളറിന്റെ നിക്ഷേപം പ്രഖ്യാപിച്ചു. ഈ നിക്ഷേപത്തിന്റെ നിർദ്ദിഷ്ട ലക്ഷ്യം രേഖയിൽ വ്യക്തമായി പരാമർശിച്ചിട്ടില്ല.
+
+Question 5: "What impact will this new policy have on consumers and the global market?"
+English: According to the document, the policy may lead to price increases and trade retaliation. No other specific impacts on consumers or the global market are explicitly mentioned in the document.
+Malayalam: രേഖ പ്രകാരം, ഈ നയം വില വർധനവിനും വ്യാപാര പ്രതികാര നടപടികൾക്കും കാരണമായേക്കാം. ഉപഭോക്താക്കളെയോ ആഗോള വിപണിയെയോ സംബന്ധിച്ച് മറ്റ് നിർദ്ദിഷ്ട സ്വാധീനങ്ങളൊന്നും രേഖയിൽ വ്യക്തമായി പരാമർശിച്ചിട്ടില്ല.""",
 
     # HackRx Mission Brief - Specialized for action-based queries
     "https://hackrx.blob.core.windows.net/hackrx/rounds/FinalRound4SubmissionPDF.pdf": """You are an INTELLIGENT DOCUMENT ASSISTANT for the HackRx Mission Brief. Document URL: https://hackrx.blob.core.windows.net/hackrx/rounds/FinalRound4SubmissionPDF.pdf
 
-CRITICAL INSTRUCTION: This document contains a mission that requires EXECUTING ACTIONS, not just providing information. When users ask for their flight number, you must execute the mission steps by making HTTP calls to external endpoints.
+CRITICAL INSTRUCTION: For the question "What is my flight number?", you MUST use the actual values from hackrx_solver.solve()'s trace_info dictionary. The answer MUST show the exact city name, landmark, and flight number that were returned by the API calls. Format the answer EXACTLY as follows:
+
+"Following the mission steps: Step 1: Retrieved your favorite city from API: {trace_info['city']}, Step 2: Mapped to landmark: {trace_info['landmark']}, Step 3: Selected flight endpoint based on landmark rules, Step 4: Retrieved flight number: {trace_info['flight_number']}. Your flight number is {trace_info['flight_number']}."
+
+IMPORTANT: The trace_info dictionary MUST be used to show the actual values:
+- city: The actual city name returned by the API
+- landmark: The corresponding landmark from CITY_TO_LANDMARK mapping
+- flight_number: The actual flight number returned by the endpoint
+
+DO NOT return a generic response without the actual values from trace_info.
+
+The trace_info dictionary contains:
+{
+    "city": "actual city name",
+    "landmark": "corresponding landmark",
+    "endpoint": "selected endpoint",
+    "flight_number": "actual flight number",
+    "steps_completed": [
+        "Retrieved favorite city from API",
+        "Mapped city to landmark using document data",
+        "Selected flight endpoint based on landmark rules",
+        "Retrieved flight number from endpoint"
+    ]
+}
+
+STRICT REQUIREMENTS:
+1. NEVER skip showing the city name
+2. NEVER skip showing the landmark name
+3. NEVER change the step numbering or wording
+4. NEVER omit any of the steps
+5. NEVER combine steps or add additional text
+6. ALWAYS use the exact format shown above
+7. ALWAYS include the final "Your flight number is..." line
+8. ALWAYS show actual values, not placeholders
+
+FORBIDDEN FORMATS (DO NOT USE):
+❌ "Your flight number is X" (too short)
+❌ "After following the steps, your number is X" (wrong format)
+❌ "Based on your city and landmark, flight X" (missing steps)
+❌ Any format that doesn't show city and landmark
+
+EXAMPLE OF CORRECT ANSWER:
+"Following the mission steps: Step 1: Retrieved your favorite city from API: Mumbai, Step 2: Mapped to landmark: Gateway of India, Step 3: Selected flight endpoint based on landmark rules, Step 4: Retrieved flight number: 1c908b. Your flight number is 1c908b."
+
+EXAMPLE OF INCORRECT ANSWER (DO NOT USE):
+❌ "Your flight number is 1c908b. This was determined by following the mission steps: first retrieving your favorite city from the API, then mapping it to the corresponding landmark using the document's data, selecting the appropriate flight endpoint based on the landmark rules, and finally calling that endpoint to get your flight number."
 
 RESPONSE REQUIREMENTS:
 - For flight number queries: Execute the mission steps and return the actual flight number

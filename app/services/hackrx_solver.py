@@ -8,7 +8,7 @@ HackRx Challenge Solver - RAG + Tools Implementation
 import requests
 import json
 import logging
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, Union
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -77,8 +77,8 @@ class HackRxSolver:
         self.base_url = "https://register.hackrx.in"
         self.timeout = 30
         
-    def http_get(self, url: str) -> str:
-        """Make HTTP GET request and return response text."""
+    def http_get(self, url: str) -> Union[str, Dict[str, Any]]:
+        """Make HTTP GET request and return response text or JSON object."""
         try:
             logger.info(f"Making HTTP GET request to: {url}")
             response = requests.get(url, timeout=self.timeout)
@@ -105,9 +105,10 @@ class HackRxSolver:
         
         # Handle different response formats
         if isinstance(city_response, dict):
+            city_response_dict = city_response  # Type assertion for mypy
             # Check for nested data structure first
-            if "data" in city_response and isinstance(city_response["data"], dict):
-                data = city_response["data"]
+            if "data" in city_response_dict and isinstance(city_response_dict["data"], dict):
+                data = city_response_dict["data"]
                 for key in ["city", "name", "location", "result"]:
                     if key in data:
                         city = str(data[key]).strip()
@@ -116,8 +117,8 @@ class HackRxSolver:
             
             # Check for direct keys
             for key in ["city", "name", "location", "result"]:
-                if key in city_response:
-                    city = str(city_response[key]).strip()
+                if key in city_response_dict:
+                    city = str(city_response_dict[key]).strip()
                     logger.info(f"Extracted city from {key}: {city}")
                     return city
             
@@ -151,9 +152,10 @@ class HackRxSolver:
         
         # Handle different response formats
         if isinstance(flight_response, dict):
+            flight_response_dict = flight_response  # Type assertion for mypy
             # Check for nested data structure first
-            if "data" in flight_response and isinstance(flight_response["data"], dict):
-                data = flight_response["data"]
+            if "data" in flight_response_dict and isinstance(flight_response_dict["data"], dict):
+                data = flight_response_dict["data"]
                 for key in ["flightNumber", "flight_number", "number", "result"]:
                     if key in data:
                         flight_number = str(data[key]).strip()
@@ -162,8 +164,8 @@ class HackRxSolver:
             
             # Check for direct keys
             for key in ["flightNumber", "flight_number", "number", "result"]:
-                if key in flight_response:
-                    flight_number = str(flight_response[key]).strip()
+                if key in flight_response_dict:
+                    flight_number = str(flight_response_dict[key]).strip()
                     logger.info(f"Extracted flight number from {key}: {flight_number}")
                     return flight_number
             

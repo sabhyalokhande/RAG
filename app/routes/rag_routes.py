@@ -275,9 +275,9 @@ async def hackrx_run():
                 print(f"✅ Flight number retrieved: {flight_number}")
                 print(f"🔍 Trace: {trace_info}")
                 
-                # Fill in answers for HackRx questions
+                # Fill in answers for HackRx questions using the structured format
                 for idx, question in hackrx_questions:
-                    answers[idx] = f"Your flight number is {flight_number}. This was determined by following the mission steps: first retrieving your favorite city from the API, then mapping it to the corresponding landmark using the document's data, selecting the appropriate flight endpoint based on the landmark rules, and finally calling that endpoint to get your flight number."
+                    answers[idx] = f"Following the mission steps: Step 1: Retrieved your favorite city from API: {trace_info['city']}, Step 2: Mapped to landmark: {trace_info['landmark']}, Step 3: Selected flight endpoint based on landmark rules, Step 4: Retrieved flight number: {trace_info['flight_number']}. Your flight number is {trace_info['flight_number']}."
                 
             except Exception as e:
                 error_msg = f"Failed to execute HackRx mission: {str(e)}"
