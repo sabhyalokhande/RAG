@@ -148,19 +148,13 @@ Added intelligent chunking that respects:
 - Natural word boundaries
 - Document structure
 
-### 3. **Enhanced Caching Strategy**
-
-- **Improved cache keys** for better hit rates
-- **Enhanced TTL management** for different content types
-- **Better cache cleanup** to prevent memory leaks
-
-### 4. **Better Error Handling**
+### 3. **Better Error Handling**
 
 - **Graceful fallbacks** for failed embeddings
 - **Improved timeout handling** with sync/async fallbacks
 - **Enhanced logging** for better debugging
 
-### 5. **Performance Optimizations**
+### 4. **Performance Optimizations**
 
 - **Parallel processing** for multiple questions
 - **Optimized batch sizes** to avoid rate limits
@@ -253,4 +247,4 @@ The RAG system has been significantly enhanced for better accuracy through:
 - ✅ **Enhanced error handling** for reliability
 - ✅ **Optimized performance** for speed and accuracy
 
-These improvements should result in **significantly better accuracy** for policy-related questions and other document-based queries, with the enhanced models providing superior semantic understanding and reasoning capabilities. 
+These improvements should result in **significantly better accuracy** for policy-related questions and other document-based queries, with the enhanced models providing superior semantic understanding and reasoning capabilities.

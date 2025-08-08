@@ -232,12 +232,6 @@ Authorization: Bearer your-api-key
 }
 ```
 
-#### Cache Management
-```http
-GET /hackrx/cache/status
-POST /hackrx/cache/clear
-```
-
 ## 🛠️ Setup Instructions
 
 ### 1. Prerequisites
@@ -696,4 +690,4 @@ For issues and questions:
 
 ---
 
-**Built with ❤️ for enterprise-grade RAG applications with enhanced accuracy and performance** 
+**Built with ❤️ for enterprise-grade RAG applications with enhanced accuracy and performance**

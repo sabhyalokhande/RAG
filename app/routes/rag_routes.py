@@ -81,10 +81,6 @@ except Exception as e:
 # Thread pool for parallel processing
 executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
 
-# Cache for HackRX endpoint results
-hackrx_cache = {}
-CACHE_TTL = Config.CACHE_TTL
-
 # Simple logging lock to prevent file conflicts
 log_lock = threading.Lock()
 
@@ -108,28 +104,6 @@ def log_request_background(document_url: str, questions: List[str], answers: Lis
     
     # Run in background thread to avoid blocking
     threading.Thread(target=write_log, daemon=True).start()
-
-def generate_cache_key(documents_url: str, questions: List[str]) -> str:
-    """Generate cache key for speed optimization."""
-    content = f"{documents_url}:{json.dumps(questions, sort_keys=True)}"
-    return hashlib.md5(content.encode()).hexdigest()
-
-def get_cached_result(cache_key: str) -> Optional[Dict]:
-    """Get cached result with speed optimization."""
-    if cache_key in hackrx_cache:
-        cache_data = hackrx_cache[cache_key]
-        if time.time() - cache_data['timestamp'] < CACHE_TTL:
-            logger.info(f"Cache hit for key: {cache_key}")
-            return cache_data['result']
-    return None
-
-def cache_result(cache_key: str, result: Dict):
-    """Cache result with speed optimization."""
-    hackrx_cache[cache_key] = {
-        'result': result,
-        'timestamp': time.time()
-    }
-    logger.info(f"Cached result for key: {cache_key}")
 
 @rag_routes.route('/health', methods=['GET'])
 def health_check():
@@ -162,15 +136,6 @@ async def hackrx_run():
         
         if not questions or not isinstance(questions, list):
             return jsonify({"error": "Questions must be a non-empty list"}), 400
-        
-        # Generate cache key
-        cache_key = generate_cache_key(documents_url, questions)
-        
-        # Check cache first
-        cached_result = get_cached_result(cache_key)
-        if cached_result:
-            logger.info(f"Returning cached result for request")
-            return jsonify(cached_result)
         
         # Fast document processing
         collection_name = "hackrx_documents"
@@ -369,9 +334,6 @@ async def hackrx_run():
             }
         }
         
-        # Cache the result
-        cache_result(cache_key, result)
-        
         # Log request data in background
         log_request_background(documents_url, questions, answers)
         
@@ -379,46 +341,6 @@ async def hackrx_run():
     
     except Exception as e:
         logger.error(f"Error in hackrx/run endpoint: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-# Cache management endpoint
-@rag_routes.route('/hackrx/cache/status', methods=['GET'])
-def cache_status():
-    """Get cache statistics and status."""
-    try:
-        current_time = time.time()
-        active_entries = 0
-        expired_entries = 0
-        
-        for key, data in hackrx_cache.items():
-            if current_time - data['timestamp'] < CACHE_TTL:
-                active_entries += 1
-            else:
-                expired_entries += 1
-        
-        return jsonify({
-            "cache_status": {
-                "total_entries": len(hackrx_cache),
-                "active_entries": active_entries,
-                "expired_entries": expired_entries,
-                "cache_ttl_seconds": CACHE_TTL,
-                "memory_usage_mb": len(hackrx_cache) * 0.001  # Rough estimate
-            }
-        })
-    except Exception as e:
-        logger.error(f"Error getting cache status: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@rag_routes.route('/hackrx/cache/clear', methods=['POST'])
-def clear_cache():
-    """Clear the cache."""
-    try:
-        global hackrx_cache
-        hackrx_cache.clear()
-        logger.info("Cache cleared successfully")
-        return jsonify({"status": "success", "message": "Cache cleared successfully"})
-    except Exception as e:
-        logger.error(f"Error clearing cache: {e}")
         return jsonify({"error": str(e)}), 500
 
 @rag_routes.route('/hackrx/logs', methods=['GET'])
@@ -453,9 +375,7 @@ def optimize_for_speed():
     executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
     
     # Clear caches for fresh start
-    hackrx_cache.clear()
-    
     logger.info("Speed optimizations applied to routes")
 
 # Initialize optimizations
-optimize_for_speed() 
+optimize_for_speed()

@@ -132,19 +132,6 @@ class Config:
     QUESTIONS_PROCESSING_TARGET = 15  # 15 seconds for questions
     
     # ============================================================================
-    # CACHING AND OPTIMIZATION
-    # ============================================================================
-    
-    # Cache Settings
-    ENABLE_CACHING = True
-    CACHE_TTL = 3600  # 1 hour
-    MAX_CACHE_SIZE = 1000
-    
-    # Memory Optimization
-    ENABLE_MEMORY_OPTIMIZATION = True
-    MAX_MEMORY_USAGE = 0.8  # 80% of available memory
-    
-    # ============================================================================
     # FALLBACK SETTINGS
     # ============================================================================
     
