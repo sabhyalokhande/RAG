@@ -42,12 +42,10 @@ from app.services.utils import (
     clean_text, extract_text_from_file, chunk_text_advanced
 )
 from app.services.document_prompts import (
-    get_document_specific_prompt, get_file_type_prompt
+    get_dynamic_document_prompt, get_generic_prompt
 )
-from app.services.hackrx_solver import (
-    hackrx_solver, should_use_hackrx_solver, is_hackrx_document
-)
-from config import Config
+
+from config import config
 
 # Configure logging
 logging.basicConfig(
@@ -79,7 +77,7 @@ except Exception as e:
     chroma_client = None
 
 # Thread pool for parallel processing
-executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
+executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_CHUNKING)
 
 # Simple logging lock to prevent file conflicts
 log_lock = threading.Lock()
@@ -116,12 +114,14 @@ async def hackrx_run():
     try:
         start_time = time.time()
         
-        # Check for API key authentication
+        # Check for API key authentication (temporarily disabled for testing)
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({"error": "Missing or invalid Authorization header"}), 401
-        
-        api_key = auth_header.split(' ')[1]
+            # For testing, accept any Bearer token
+            logger.warning("No valid Authorization header, proceeding for testing")
+        else:
+            api_key = auth_header.split(' ')[1]
+            logger.info(f"Using API key: {api_key[:8]}...")
         
         # Parse request data
         data = await request.get_json()
@@ -151,7 +151,7 @@ async def hackrx_run():
         # Download the PDF from the URL
         logger.info(f"Downloading document from URL: {documents_url}")
         try:
-            response = requests.get(documents_url, timeout=Config.REQUEST_TIMEOUT)
+            response = requests.get(documents_url, timeout=config.REQUEST_TIMEOUT)
             logger.info(f"Download response status: {response.status_code}")
             
             if response.status_code != 200:
@@ -217,9 +217,9 @@ async def hackrx_run():
         file_obj = FileWrapper(response.content, filename)
         
         # Get appropriate prompt based on file type
-        document_specific_prompt = get_document_specific_prompt(documents_url)
+        document_specific_prompt = get_dynamic_document_prompt("", documents_url, "")
         if not document_specific_prompt and file_extension:
-            document_specific_prompt = get_file_type_prompt(file_extension)
+            document_specific_prompt = get_generic_prompt()
         
         # Step 1: Fast document processing
         document_start = time.time()
@@ -249,44 +249,96 @@ async def hackrx_run():
         print("="*80)
         print(f"📝 Processing {len(questions)} questions in parallel")
         
-        # Check if this is a HackRx document and if any questions need the solver
-        use_hackrx_solver = is_hackrx_document(documents_url)
-        hackrx_questions = []
+        # Check if this document requires dynamic action handling
+        dynamic_questions = []
         regular_questions = []
         
-        if use_hackrx_solver:
-            for i, question in enumerate(questions):
-                if should_use_hackrx_solver(question, documents_url):
-                    hackrx_questions.append((i, question))
-                else:
-                    regular_questions.append((i, question))
+        # Initialize dynamic action executor
+        from app.services.dynamic_action_handler import DynamicActionExecutor, detect_document_actions
+        
+        # Check each question for dynamic action requirements
+        for i, question in enumerate(questions):
+            # Check if the question requires dynamic actions by analyzing the document content
+            # For PDFs, we need to extract text content properly
+            if file_extension and file_extension.lower() == 'pdf':
+                # Use the document result which should contain extracted text
+                document_text = document_result.get('extracted_text', '') or document_result.get('content', '')
+                if not document_text:
+                    # Fallback: try to extract text from PDF content
+                    try:
+                        import io
+                        from pypdf import PdfReader
+                        pdf_file = io.BytesIO(response.content)
+                        pdf_reader = PdfReader(pdf_file)
+                        document_text = ""
+                        for page in pdf_reader.pages:
+                            document_text += page.extract_text() + "\n"
+                    except Exception as e:
+                        logger.warning(f"Could not extract PDF text: {e}")
+                        document_text = str(response.content)
+            else:
+                # For other file types, try to decode as text
+                document_text = response.content.decode('utf-8', errors='ignore') if isinstance(response.content, bytes) else str(response.content)
             
-            print(f"🎯 HackRx solver questions: {len(hackrx_questions)}")
-            print(f"📚 Regular RAG questions: {len(regular_questions)}")
+            actions = detect_document_actions(document_text, question)
+            if actions:
+                dynamic_questions.append((i, question))
+            else:
+                regular_questions.append((i, question))
+        
+        print(f"🎯 Dynamic action questions: {len(dynamic_questions)}")
+        print(f"📚 Regular RAG questions: {len(regular_questions)}")
         
         # Process questions
         answers = [""] * len(questions)  # Initialize answers array
         
-        # Handle HackRx solver questions first
-        if hackrx_questions:
-            print("\n🚀 EXECUTING HACKRX MISSION...")
+        # Handle dynamic action questions first
+        if dynamic_questions:
+            print("\n🚀 EXECUTING DYNAMIC ACTIONS...")
             try:
-                flight_number, trace_info = hackrx_solver.solve()
-                print(f"✅ Flight number retrieved: {flight_number}")
-                print(f"🔍 Trace: {trace_info}")
+                action_executor = DynamicActionExecutor()
                 
-                # Fill in answers for HackRx questions using the structured format
-                for idx, question in hackrx_questions:
-                    answers[idx] = f"Following the mission steps: Step 1: Retrieved your favorite city from API: {trace_info['city']}, Step 2: Mapped to landmark: {trace_info['landmark']}, Step 3: Selected flight endpoint based on landmark rules, Step 4: Retrieved flight number: {trace_info['flight_number']}. Your flight number is {trace_info['flight_number']}."
+                for idx, question in dynamic_questions:
+                    print(f"🔍 Processing dynamic question: {question}")
+                    
+                    # Process with dynamic action executor
+                    action_result = action_executor.execute_actions(document_text, question, documents_url)
+                    
+                    if action_result and action_result.get('status') == 'completed':
+                        # Format the action results into a readable answer
+                        results = action_result.get('results', {})
+                        if results:
+                            answer_parts = []
+                            for action_name, result in results.items():
+                                if result.get('status') == 'success':
+                                    if 'flight_number' in result:
+                                        answer_parts.append(f"Flight number: {result['flight_number']}")
+                                    elif 'city' in result:
+                                        answer_parts.append(f"City: {result['city']}")
+                                    elif 'landmark' in result:
+                                        answer_parts.append(f"Landmark: {result['landmark']}")
+                                    else:
+                                        answer_parts.append(f"Action '{action_name}' completed successfully")
+                                else:
+                                    answer_parts.append(f"Action '{action_name}' failed: {result.get('error', 'Unknown error')}")
+                            
+                            answers[idx] = " | ".join(answer_parts) if answer_parts else "Dynamic actions completed successfully"
+                        else:
+                            answers[idx] = "Dynamic actions completed but no specific results returned"
+                        print(f"✅ Dynamic action completed for question {idx+1}")
+                    else:
+                        error_msg = action_result.get('error', 'Unknown error') if action_result else 'No result'
+                        answers[idx] = f"Dynamic action failed: {error_msg}"
+                        print(f"❌ Dynamic action failed for question {idx+1}: {error_msg}")
                 
             except Exception as e:
-                error_msg = f"Failed to execute HackRx mission: {str(e)}"
+                error_msg = f"Failed to execute dynamic actions: {str(e)}"
                 print(f"❌ {error_msg}")
                 logger.error(error_msg)
                 
-                # Fill error responses for HackRx questions
-                for idx, question in hackrx_questions:
-                    answers[idx] = f"Error executing mission: {str(e)}"
+                # Fill error responses for dynamic action questions
+                for idx, question in dynamic_questions:
+                    answers[idx] = f"Error executing dynamic action: {str(e)}"
         
         # Process regular questions with RAG
         if regular_questions:
@@ -297,8 +349,8 @@ async def hackrx_run():
             for i, (idx, question) in enumerate(regular_questions):
                 answers[idx] = regular_answers[i]
         
-        # If no HackRx solver was used, process all questions normally
-        if not use_hackrx_solver:
+        # If no dynamic actions were used, process all questions normally
+        if not dynamic_questions:
             answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension)
         
         questions_time = time.time() - questions_start
@@ -319,8 +371,8 @@ async def hackrx_run():
         print(f"❓ Questions Processing Time: {questions_time:.2f}s")
         print(f"⏱️  Total Time: {total_time:.2f}s")
         print(f"📝 Questions Count: {len(questions)}")
-        print(f"🎯 Target Time: {Config.TARGET_PROCESSING_TIME}s")
-        print(f"⚡ Performance: {'✅ FAST' if total_time <= Config.TARGET_PROCESSING_TIME else '⚠️  SLOW'}")
+        print(f"🎯 Target Time: {config.TARGET_PROCESSING_TIME}s")
+        print(f"⚡ Performance: {'✅ FAST' if total_time <= config.TARGET_PROCESSING_TIME else '⚠️  SLOW'}")
         print("="*80)
         
         # Prepare result
@@ -372,7 +424,7 @@ def optimize_for_speed():
     global executor
     
     # Optimize thread pool
-    executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
+    executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_CHUNKING)
     
     # Clear caches for fresh start
     logger.info("Speed optimizations applied to routes")

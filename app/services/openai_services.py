@@ -25,7 +25,7 @@ import chromadb
 from chromadb.config import Settings
 
 # Import configuration
-from config import Config
+from config import config
 
 # Import services
 try:
@@ -43,7 +43,7 @@ from app.services.utils import (
 )
 from app.services.document_prompts import (
     construct_rag_prompt_with_document_detection,
-    get_document_specific_prompt, get_file_type_prompt
+    get_dynamic_document_prompt, get_generic_prompt
 )
 
 logger = logging.getLogger(__name__)
@@ -54,8 +54,8 @@ sync_client = None
 pinecone_service = None
 
 # Thread pools for parallel processing
-embedding_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_EMBEDDINGS)
-answer_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_ANSWERS)
+embedding_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_EMBEDDINGS)
+answer_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_ANSWERS)
 
 # Cache for LLM responses
 llm_response_cache = {}
@@ -77,24 +77,24 @@ def initialize_openai_clients():
     try:
         # Debug: Print configuration values
         print("🔧 OPENAI CLIENT INITIALIZATION:")
-        print(f"   AZURE_OPENAI_API_KEY: {'✅ Set' if Config.AZURE_OPENAI_API_KEY else '❌ Missing'}")
-        print(f"   AZURE_OPENAI_ENDPOINT: {'✅ Set' if Config.AZURE_OPENAI_ENDPOINT else '❌ Missing'}")
-        print(f"   AZURE_DEPLOYMENT_EMBEDDING: {Config.AZURE_DEPLOYMENT_EMBEDDING}")
-        print(f"   AZURE_DEPLOYMENT_COMPLETION: {Config.AZURE_DEPLOYMENT_COMPLETION}")
+        print(f"   AZURE_OPENAI_API_KEY: {'✅ Set' if config.AZURE_OPENAI_API_KEY else '❌ Missing'}")
+        print(f"   AZURE_OPENAI_ENDPOINT: {'✅ Set' if config.AZURE_OPENAI_ENDPOINT else '❌ Missing'}")
+        print(f"   AZURE_DEPLOYMENT_EMBEDDING: {config.AZURE_DEPLOYMENT_EMBEDDING}")
+        print(f"   AZURE_DEPLOYMENT_COMPLETION: {config.AZURE_DEPLOYMENT_COMPLETION}")
         print("="*80)
         
         # Initialize async client
         async_client = AsyncAzureOpenAI(
-            api_key=Config.AZURE_OPENAI_API_KEY,
+            api_key=config.AZURE_OPENAI_API_KEY,
             api_version="2023-06-01-preview",
-            azure_endpoint=Config.AZURE_OPENAI_ENDPOINT
+            azure_endpoint=config.AZURE_OPENAI_ENDPOINT
         )
         
         # Initialize sync client
         sync_client = openai.AzureOpenAI(
-            api_key=Config.AZURE_OPENAI_API_KEY,
+            api_key=config.AZURE_OPENAI_API_KEY,
             api_version="2023-06-01-preview",
-            azure_endpoint=Config.AZURE_OPENAI_ENDPOINT
+            azure_endpoint=config.AZURE_OPENAI_ENDPOINT
         )
         
         logger.info("Azure OpenAI clients initialized successfully")
@@ -106,7 +106,7 @@ def initialize_openai_clients():
 # Initialize clients
 initialize_openai_clients()
 
-@retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
+@retry(stop=stop_after_attempt(config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=config.RETRY_DELAY, max=6))
 async def get_embeddings_parallel(texts: List[str]) -> List[List[float]]:
     """Get embeddings with parallel processing for speed optimization."""
     if not texts:
@@ -114,14 +114,14 @@ async def get_embeddings_parallel(texts: List[str]) -> List[List[float]]:
     
     try:
         # Process texts in parallel batches
-        batch_size = Config.BATCH_SIZE_EMBEDDINGS
+        batch_size = config.BATCH_SIZE_EMBEDDINGS
         
         async def process_batch(batch):
             try:
                 response = await async_client.embeddings.create(
-                    model=Config.AZURE_DEPLOYMENT_EMBEDDING,
+                    model=config.AZURE_DEPLOYMENT_EMBEDDING,
                     input=batch,
-                    timeout=Config.EMBEDDING_TIMEOUT
+                    timeout=config.EMBEDDING_TIMEOUT
                 )
                 return [embedding.embedding for embedding in response.data]
             except Exception as e:
@@ -154,16 +154,16 @@ async def get_embeddings_sequential(texts: List[str]) -> List[List[float]]:
     """Sequential embedding generation as fallback."""
     try:
         response = await async_client.embeddings.create(
-            model=Config.AZURE_DEPLOYMENT_EMBEDDING,
+            model=config.AZURE_DEPLOYMENT_EMBEDDING,
             input=texts,
-            timeout=Config.EMBEDDING_TIMEOUT
+            timeout=config.EMBEDDING_TIMEOUT
         )
         return [embedding.embedding for embedding in response.data]
     except Exception as e:
         logger.error(f"Error in sequential embedding generation: {e}")
         return []
 
-@retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
+@retry(stop=stop_after_attempt(config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=config.RETRY_DELAY, max=6))
 async def process_and_store_document_fast(file, collection_name: str, chroma_client=None, file_extension: str = None) -> Dict[str, Any]:
     """Fast document processing with parallel operations."""
     start_time = time.time()
@@ -236,11 +236,11 @@ async def process_and_store_document_fast(file, collection_name: str, chroma_cli
         logger.error(f"Error in fast document processing: {e}")
         return {"error": str(e)}
 
-@retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
+@retry(stop=stop_after_attempt(config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=config.RETRY_DELAY, max=6))
 async def query_vector_db_fast(query: str, collection_name: str, top_k: int = None, chroma_client=None) -> Dict[str, Any]:
     """Fast vector database query with speed optimizations."""
     try:
-        top_k = top_k or Config.SIMILARITY_TOP_K
+        top_k = top_k or config.SIMILARITY_TOP_K
         
         # Get query embedding
         query_embedding = await get_embeddings_parallel([query])
@@ -318,11 +318,11 @@ Response: I cannot provide an answer to this question based on the available doc
         # Get document-specific prompt if available
         document_specific_prompt = None
         if document_url:
-            document_specific_prompt = get_document_specific_prompt(document_url)
+            document_specific_prompt = get_dynamic_document_prompt("", document_url, query)
         
         # Get file-type specific prompt if no document-specific prompt
         if not document_specific_prompt and file_extension:
-            document_specific_prompt = get_file_type_prompt(file_extension)
+            document_specific_prompt = get_generic_prompt()
         
         # Use document-specific prompt if available, otherwise use generic prompt
         if document_specific_prompt:
@@ -627,7 +627,7 @@ Please analyze the document content thoroughly and provide a comprehensive answe
         logger.error(f"Error constructing dynamic RAG prompt: {e}")
         return f"Answer the following question based on the provided context:\n\nContext: {relevant_docs}\n\nQuestion: {query}\n\nAnswer:"
 
-@retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
+@retry(stop=stop_after_attempt(config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=config.RETRY_DELAY, max=6))
 async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None, document_url: str = None, file_extension: str = None) -> str:
     """Fast answer generation with document-specific prompt detection."""
     if not async_client:
@@ -653,21 +653,21 @@ async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_his
         try:
             # Fast completion with reduced parameters
             response = await async_client.chat.completions.create(
-                model=Config.AZURE_DEPLOYMENT_COMPLETION,
+                model=config.AZURE_DEPLOYMENT_COMPLETION,
                 messages=messages,
-                temperature=Config.TEMPERATURE,
-                max_tokens=Config.MAX_TOKENS,
-                timeout=Config.COMPLETION_TIMEOUT
+                temperature=config.TEMPERATURE,
+                max_tokens=config.MAX_TOKENS,
+                timeout=config.COMPLETION_TIMEOUT
             )
             answer = response.choices[0].message.content
         except asyncio.TimeoutError:
             # Fallback with sync client
             response = sync_client.chat.completions.create(
-                model=Config.AZURE_DEPLOYMENT_COMPLETION,
+                model=config.AZURE_DEPLOYMENT_COMPLETION,
                 messages=messages,
-                temperature=Config.TEMPERATURE,
-                max_tokens=Config.MAX_TOKENS,
-                timeout=Config.COMPLETION_TIMEOUT
+                temperature=config.TEMPERATURE,
+                max_tokens=config.MAX_TOKENS,
+                timeout=config.COMPLETION_TIMEOUT
             )
             answer = response.choices[0].message.content
         
@@ -680,7 +680,7 @@ async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_his
         logger.error(f"Error in fast answer generation: {e}")
         return f"Error generating answer: {str(e)}" 
 
-@retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
+@retry(stop=stop_after_attempt(config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=config.RETRY_DELAY, max=6))
 async def generate_answer_concise(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None) -> str:
     """Concise answer generation for short, precise responses."""
     if not async_client:
@@ -706,21 +706,21 @@ async def generate_answer_concise(query: str, relevant_docs: Dict, conversation_
         try:
             # Fast completion with reduced parameters
             response = await async_client.chat.completions.create(
-                model=Config.AZURE_DEPLOYMENT_COMPLETION,
+                model=config.AZURE_DEPLOYMENT_COMPLETION,
                 messages=messages,
                 temperature=0.1,  # Lower temperature for more precise answers
                 max_tokens=150,   # Shorter responses
-                timeout=Config.COMPLETION_TIMEOUT
+                timeout=config.COMPLETION_TIMEOUT
             )
             answer = response.choices[0].message.content
         except asyncio.TimeoutError:
             # Fallback with sync client
             response = sync_client.chat.completions.create(
-                model=Config.AZURE_DEPLOYMENT_COMPLETION,
+                model=config.AZURE_DEPLOYMENT_COMPLETION,
                 messages=messages,
                 temperature=0.1,  # Lower temperature for more precise answers
                 max_tokens=150,   # Shorter responses
-                timeout=Config.COMPLETION_TIMEOUT
+                timeout=config.COMPLETION_TIMEOUT
             )
             answer = response.choices[0].message.content
         
@@ -733,7 +733,7 @@ async def generate_answer_concise(query: str, relevant_docs: Dict, conversation_
         logger.error(f"Error in concise answer generation: {e}")
         return f"Error generating answer: {str(e)}"
 
-@retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
+@retry(stop=stop_after_attempt(config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=config.RETRY_DELAY, max=6))
 async def generate_answer_dynamic(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None) -> str:
     """Dynamic answer generation that adapts to document content."""
     if not async_client:
@@ -759,21 +759,21 @@ async def generate_answer_dynamic(query: str, relevant_docs: Dict, conversation_
         try:
             # Dynamic completion with optimized parameters
             response = await async_client.chat.completions.create(
-                model=Config.AZURE_DEPLOYMENT_COMPLETION,
+                model=config.AZURE_DEPLOYMENT_COMPLETION,
                 messages=messages,
                 temperature=0.2,  # Lower temperature for more consistent responses
                 max_tokens=800,   # Increased for better explanations
-                timeout=Config.COMPLETION_TIMEOUT
+                timeout=config.COMPLETION_TIMEOUT
             )
             answer = response.choices[0].message.content
         except asyncio.TimeoutError:
             # Fallback with sync client
             response = sync_client.chat.completions.create(
-                model=Config.AZURE_DEPLOYMENT_COMPLETION,
+                model=config.AZURE_DEPLOYMENT_COMPLETION,
                 messages=messages,
                 temperature=0.2,  # Lower temperature for more consistent responses
                 max_tokens=800,   # Increased for better explanations
-                timeout=Config.COMPLETION_TIMEOUT
+                timeout=config.COMPLETION_TIMEOUT
             )
             answer = response.choices[0].message.content
         
@@ -903,17 +903,83 @@ async def process_questions_parallel_dynamic(questions: List[str], collection_na
         return [f"Error: {str(e)}"] * len(questions)
 
 def optimize_for_speed():
-    """Apply speed optimizations to the system."""
-    global embedding_executor, answer_executor
+    """Optimize thread pools and caches for maximum speed."""
+    global chunking_executor, embedding_executor, answer_executor
     
     # Optimize thread pools
-    embedding_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_EMBEDDINGS)
-    answer_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_ANSWERS)
+    chunking_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_CHUNKING)
+    embedding_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_EMBEDDINGS)
+    answer_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_ANSWERS)
     
-    # Clear caches for fresh start
-    llm_response_cache.clear()
-    
-    logger.info("Speed optimizations applied to OpenAI services")
+    logger.info("Speed optimizations applied")
 
-# Initialize optimizations
-optimize_for_speed() 
+
+# Wrapper classes for agentic_rag_service.py compatibility
+class OpenAIEmbeddingService:
+    """Wrapper class for embedding functions to maintain compatibility."""
+    
+    async def get_embedding(self, text: str) -> List[float]:
+        """Get embedding for a single text."""
+        embeddings = await get_embeddings_parallel([text])
+        return embeddings[0] if embeddings else []
+    
+    def get_embedding_sync(self, text: str) -> List[float]:
+        """Synchronous version of get_embedding."""
+        # For compatibility, we'll use the async version in a sync context
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're already in an async context, create a new task
+                return asyncio.create_task(self.get_embedding(text))
+            else:
+                return loop.run_until_complete(self.get_embedding(text))
+        except RuntimeError:
+            # No event loop, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.get_embedding(text))
+            finally:
+                loop.close()
+
+
+class OpenAICompletionService:
+    """Wrapper class for completion functions to maintain compatibility."""
+    
+    async def get_completion(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        """Get completion for a prompt."""
+        # Create a mock relevant_docs structure for compatibility
+        relevant_docs = {
+            'documents': [{'content': prompt}],
+            'metadata': {}
+        }
+        
+        # Use the existing generate_answer_fast function
+        response = await generate_answer_fast(
+            query=prompt,
+            relevant_docs=relevant_docs,
+            org_info=None,
+            tone=None
+        )
+        return response
+    
+    def get_completion_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        """Synchronous version of get_completion."""
+        # For compatibility, we'll use the async version in a sync context
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're already in an async context, create a new task
+                return asyncio.create_task(self.get_completion(prompt, max_tokens, temperature))
+            else:
+                return loop.run_until_complete(self.get_completion(prompt, max_tokens, temperature))
+        except RuntimeError:
+            # No event loop, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.get_completion(prompt, max_tokens, temperature))
+            finally:
+                loop.close() 

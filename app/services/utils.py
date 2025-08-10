@@ -16,14 +16,14 @@ from functools import lru_cache
 import hashlib
 
 # Import configuration
-from config import Config
+from config import config
 
 logger = logging.getLogger(__name__)
 
 # Thread pools for parallel processing
-chunking_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
-embedding_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_EMBEDDINGS)
-answer_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_ANSWERS)
+chunking_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_CHUNKING)
+embedding_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_EMBEDDINGS)
+answer_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_ANSWERS)
 
 def clean_text(text: str) -> str:
     """Fast text cleaning for speed optimization."""
@@ -181,8 +181,8 @@ def chunk_text_advanced(text: str, chunk_size: Optional[int] = None, overlap: Op
         return []
     
     # Use config values if not provided
-    chunk_size = chunk_size or Config.CHUNK_SIZE
-    overlap = overlap or Config.CHUNK_OVERLAP
+    chunk_size = chunk_size or config.CHUNK_SIZE
+    overlap = overlap or config.CHUNK_OVERLAP
     
     # For very large texts (>500KB), use ultra-fast chunking
     if len(text) > 500000:  # 500KB threshold
@@ -197,7 +197,7 @@ def chunk_text_advanced(text: str, chunk_size: Optional[int] = None, overlap: Op
         return chunk_pptx_data_specialized(text, chunk_size, overlap)
     
     # Fast chunking for speed
-    if Config.ENABLE_FAST_CHUNKING:
+    if config.ENABLE_FAST_CHUNKING:
         return chunk_text_parallel(text, chunk_size, overlap)
     else:
         return chunk_text_standard(text, chunk_size, overlap)
@@ -236,7 +236,7 @@ def chunk_excel_data_specialized(text: str, chunk_size: int, overlap: int) -> Li
         # If adding this row would exceed chunk size, save current chunk and start new one
         if current_length + row_length > chunk_size and current_chunk:
             chunk_text = '\n'.join(current_chunk)
-            if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+            if chunk_text and len(chunk_text) >= config.MIN_CHUNK_LENGTH:
                 chunks.append(chunk_text)
             
             # Start new chunk with overlap (keep last few rows)
@@ -250,7 +250,7 @@ def chunk_excel_data_specialized(text: str, chunk_size: int, overlap: int) -> Li
     # Add final chunk
     if current_chunk:
         chunk_text = '\n'.join(current_chunk)
-        if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+        if chunk_text and len(chunk_text) >= config.MIN_CHUNK_LENGTH:
             chunks.append(chunk_text)
     
     # For Excel data, we want to ensure ALL rows are included for numerical comparisons
@@ -299,7 +299,7 @@ def chunk_pptx_data_specialized(text: str, chunk_size: int, overlap: int) -> Lis
         # If adding this line would exceed chunk size, save current chunk and start new one
         if current_length + line_length > chunk_size and current_chunk:
             chunk_text = '\n'.join(current_chunk)
-            if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+            if chunk_text and len(chunk_text) >= config.MIN_CHUNK_LENGTH:
                 chunks.append(chunk_text)
             
             # Start new chunk with overlap
@@ -313,7 +313,7 @@ def chunk_pptx_data_specialized(text: str, chunk_size: int, overlap: int) -> Lis
     # Add final chunk
     if current_chunk:
         chunk_text = '\n'.join(current_chunk)
-        if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+        if chunk_text and len(chunk_text) >= config.MIN_CHUNK_LENGTH:
             chunks.append(chunk_text)
     
     # Don't limit chunks for PPTX to preserve all relevant content
@@ -336,7 +336,7 @@ def chunk_text_ultra_fast(text: str, chunk_size: int, overlap: int) -> List[str]
         chunk_words = words[i:i + words_per_chunk]
         chunk_text = " ".join(chunk_words)
         
-        if len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+        if len(chunk_text) >= config.MIN_CHUNK_LENGTH:
             chunks.append(chunk_text)
         
         # Limit chunks for speed
@@ -372,7 +372,7 @@ def chunk_text_parallel(text: str, chunk_size: int, overlap: int) -> List[str]:
             if current_length + sentence_length > chunk_size and current_chunk:
                 # Process current chunk in parallel
                 chunk_text = create_chunk(current_chunk)
-                if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+                if chunk_text and len(chunk_text) >= config.MIN_CHUNK_LENGTH:
                     chunks.append(chunk_text)
                 
                 # Start new chunk with overlap
@@ -386,12 +386,12 @@ def chunk_text_parallel(text: str, chunk_size: int, overlap: int) -> List[str]:
         # Add final chunk
         if current_chunk:
             chunk_text = create_chunk(current_chunk)
-            if chunk_text and len(chunk_text) >= Config.MIN_CHUNK_LENGTH:
+            if chunk_text and len(chunk_text) >= config.MIN_CHUNK_LENGTH:
                 chunks.append(chunk_text)
         
         # Limit chunks for speed (but not for Excel files to preserve all data)
-        if len(chunks) > Config.MAX_CHUNKS_PER_DOCUMENT and "SHEET:" not in text:
-            chunks = chunks[:Config.MAX_CHUNKS_PER_DOCUMENT]
+        if len(chunks) > config.MAX_CHUNKS_PER_DOCUMENT and "SHEET:" not in text:
+            chunks = chunks[:config.MAX_CHUNKS_PER_DOCUMENT]
         
         return chunks
         
@@ -430,26 +430,26 @@ def chunk_text_standard(text: str, chunk_size: int, overlap: int) -> List[str]:
         
         chunk = text[start:end].strip()
         
-        if len(chunk) >= Config.MIN_CHUNK_LENGTH:
+        if len(chunk) >= config.MIN_CHUNK_LENGTH:
             chunks.append(chunk)
         
         # Move start position with overlap
         start = end - overlap if end - overlap > start else start + 1
         
         # Limit chunks for speed
-        if len(chunks) >= Config.MAX_CHUNKS_PER_DOCUMENT:
+        if len(chunks) >= config.MAX_CHUNKS_PER_DOCUMENT:
             break
     
     return chunks
 
 def is_high_quality_chunk(chunk: str) -> bool:
     """Fast quality assessment for chunks - optimized for speed."""
-    if not chunk or len(chunk) < Config.MIN_CHUNK_LENGTH:
+    if not chunk or len(chunk) < config.MIN_CHUNK_LENGTH:
         return False
     
     # Fast quality checks
     meaningful_chars = len([c for c in chunk if c.isalnum()])
-    if meaningful_chars < Config.MIN_MEANINGFUL_CHARS:
+    if meaningful_chars < config.MIN_MEANINGFUL_CHARS:
         return False
     
     # Check for sentence endings (but be lenient for speed)
@@ -463,7 +463,7 @@ def enhance_context_for_accuracy(chunk: str, context_window: Optional[int] = Non
     if not chunk:
         return chunk
     
-    context_window = context_window or Config.CONTEXT_WINDOW_SIZE
+    context_window = context_window or config.CONTEXT_WINDOW_SIZE
     
     # Simple context enhancement for speed
     enhanced_chunk = chunk
@@ -526,7 +526,7 @@ def prioritize_chunks_by_relevance(chunks: List[str], query: str) -> List[str]:
     scored_chunks.sort(key=lambda x: x[1], reverse=True)
     
     # Return top chunks
-    return [chunk for chunk, score in scored_chunks[:Config.SIMILARITY_TOP_K]]
+    return [chunk for chunk, score in scored_chunks[:config.SIMILARITY_TOP_K]]
 
 def get_related_terms() -> Dict[str, List[str]]:
     """Get related terms for semantic matching - optimized for speed."""
@@ -551,7 +551,7 @@ def truncate_text_for_embeddings(text: str, max_tokens: Optional[int] = None) ->
     if not text:
         return ""
     
-    max_tokens = max_tokens or Config.MAX_TOKENS
+    max_tokens = max_tokens or config.MAX_TOKENS
     
     # Simple character-based truncation for speed
     max_chars = max_tokens * 4  # Approximate character to token ratio
@@ -579,7 +579,7 @@ def process_chunks_parallel(chunks: List[str], query: str) -> List[str]:
         return []
     
     # Process chunks in parallel batches
-    batch_size = Config.BATCH_SIZE_CHUNKS
+    batch_size = config.BATCH_SIZE_CHUNKS
     
     def process_chunk_batch(chunk_batch):
         processed_chunks = []
@@ -593,7 +593,7 @@ def process_chunks_parallel(chunks: List[str], query: str) -> List[str]:
     chunk_batches = [chunks[i:i + batch_size] for i in range(0, len(chunks), batch_size)]
     
     # Process batches in parallel
-    with ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING) as executor:
+    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS_CHUNKING) as executor:
         results = list(executor.map(process_chunk_batch, chunk_batches))
     
     # Combine results
@@ -643,9 +643,9 @@ def optimize_for_speed():
     global chunking_executor, embedding_executor, answer_executor
     
     # Optimize thread pools
-    chunking_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
-    embedding_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_EMBEDDINGS)
-    answer_executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_ANSWERS)
+    chunking_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_CHUNKING)
+    embedding_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_EMBEDDINGS)
+    answer_executor = ThreadPoolExecutor(max_workers=config.MAX_WORKERS_ANSWERS)
     
     logger.info("Speed optimizations applied")
 
@@ -714,7 +714,7 @@ def extract_text_from_pptx_fast(file) -> str:
                 extracted_text.append("")  # Empty line between slides
         
         # Extract notes if enabled (but filter out placeholder content)
-        if Config.PPT_EXTRACT_NOTES:
+        if config.PPT_EXTRACT_NOTES:
             for slide_num, slide in enumerate(prs.slides, 1):
                 try:
                     if (hasattr(slide, "has_notes_slide") and 
@@ -815,8 +815,8 @@ def extract_text_from_excel_fast(file) -> str:
             sheet_text = [f"SHEET: {sheet_name}"]
             
             # Limit rows and columns for performance
-            df = df.head(Config.MAX_EXCEL_ROWS)
-            df = df.iloc[:, :Config.MAX_EXCEL_COLUMNS]
+            df = df.head(config.MAX_EXCEL_ROWS)
+            df = df.iloc[:, :config.MAX_EXCEL_COLUMNS]
             
             # Convert to structured text
             for idx, row in df.iterrows():
@@ -874,8 +874,8 @@ def extract_text_from_csv_fast(file) -> str:
         extracted_text = ["CSV DATA:"]
         
         # Limit rows and columns for performance
-        df = df.head(Config.MAX_EXCEL_ROWS)
-        df = df.iloc[:, :Config.MAX_EXCEL_COLUMNS]
+        df = df.head(config.MAX_EXCEL_ROWS)
+        df = df.iloc[:, :config.MAX_EXCEL_COLUMNS]
         
         # Convert to structured text
         for idx, row in df.iterrows():
@@ -914,7 +914,7 @@ def extract_text_from_zip_fast(file) -> str:
         
         extracted_text = []
         processed_files = 0
-        max_files = Config.MAX_ZIP_FILES  # Limit files to process
+        max_files = config.MAX_ZIP_FILES  # Limit files to process
         
         # Check for recursive ZIP structure
         zip_files = [f for f in zip_file.namelist() if f.lower().endswith('.zip')]
@@ -1085,14 +1085,14 @@ def extract_text_from_image_fast(file) -> str:
         image = Image.open(BytesIO(image_bytes))
         
         # Initialize Gemini API
-        if not Config.GEMINI_API_KEY:
+        if not config.GEMINI_API_KEY:
             print("❌ Gemini API key not configured")
             return ""
         
-        genai.configure(api_key=Config.GEMINI_API_KEY)
+        genai.configure(api_key=config.GEMINI_API_KEY)
         
         # Initialize Gemini model
-        model = genai.GenerativeModel(Config.GEMINI_MODEL)
+        model = genai.GenerativeModel(config.GEMINI_MODEL)
         
         # Prepare image for Gemini API
         
