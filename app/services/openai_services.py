@@ -267,7 +267,7 @@ async def query_vector_db_fast(query: str, collection_name: str, top_k: int = No
         print(f"❌ Error in vector search: {e}")
         return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
 
-def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, tone=None, document_url: str = None, file_extension: str = None) -> str:
+def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, tone=None, document_url: str = None, file_extension: str = None, document_content: str = "", file_type: str = "pdf") -> str:
     """Fast RAG prompt construction with document-specific prompt detection."""
     try:
         # Extract organization info
@@ -315,10 +315,10 @@ Question: {query}
 
 Response: I cannot provide an answer to this question based on the available document content. The information you're asking about is not covered in the provided document. Please ask questions that are relevant to the content of this specific document."""
         
-        # Get document-specific prompt if available
+        # Get document-specific prompt if available using Agentic Builder
         document_specific_prompt = None
         if document_url:
-            document_specific_prompt = get_document_specific_prompt(document_url)
+            document_specific_prompt = get_document_specific_prompt(document_url, document_content, file_type)
         
         # Get file-type specific prompt if no document-specific prompt
         if not document_specific_prompt and file_extension:
@@ -628,7 +628,7 @@ Please analyze the document content thoroughly and provide a comprehensive answe
         return f"Answer the following question based on the provided context:\n\nContext: {relevant_docs}\n\nQuestion: {query}\n\nAnswer:"
 
 @retry(stop=stop_after_attempt(Config.MAX_RETRIES), wait=wait_exponential(multiplier=1, min=Config.RETRY_DELAY, max=6))
-async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None, document_url: str = None, file_extension: str = None) -> str:
+async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_history=None, org_info=None, tone=None, document_url: str = None, file_extension: str = None, document_content: str = "", file_type: str = "pdf") -> str:
     """Fast answer generation with document-specific prompt detection."""
     if not async_client:
         raise Exception("Azure OpenAI client not initialized.")
@@ -641,8 +641,8 @@ async def generate_answer_fast(query: str, relevant_docs: Dict, conversation_his
         if cached_answer is not None:
             return cached_answer
         
-        # Fast prompt construction with document detection
-        system_prompt = construct_rag_prompt_fast(query, relevant_docs, org_info, tone, document_url, file_extension)
+        # Fast prompt construction with document detection using Agentic Builder
+        system_prompt = construct_rag_prompt_fast(query, relevant_docs, org_info, tone, document_url, file_extension, document_content, file_type)
         
         # Simple message structure for speed
         messages = [
@@ -786,7 +786,7 @@ async def generate_answer_dynamic(query: str, relevant_docs: Dict, conversation_
         logger.error(f"Error in dynamic answer generation: {e}")
         return f"Error generating answer: {str(e)}"
 
-async def process_questions_parallel(questions: List[str], collection_name: str, chroma_client=None, org_info=None, tone=None, document_url: str = None, file_extension: str = None) -> List[str]:
+async def process_questions_parallel(questions: List[str], collection_name: str, chroma_client=None, org_info=None, tone=None, document_url: str = None, file_extension: str = None, document_content: str = "", file_type: str = "pdf") -> List[str]:
     """Process multiple questions in parallel for speed optimization with document-specific prompts."""
     try:
         # Process questions in parallel
@@ -795,8 +795,8 @@ async def process_questions_parallel(questions: List[str], collection_name: str,
                 # Fast vector search
                 relevant_docs = await query_vector_db_fast(question, collection_name, chroma_client=chroma_client)
                 
-                # Fast answer generation with document URL and file extension
-                answer = await generate_answer_fast(question, relevant_docs, org_info=org_info, tone=tone, document_url=document_url, file_extension=file_extension)
+                # Fast answer generation with document URL, file extension, and content for Agentic Builder
+                answer = await generate_answer_fast(question, relevant_docs, org_info=org_info, tone=tone, document_url=document_url, file_extension=file_extension, document_content=document_content, file_type=file_type)
                 
                 return answer
             except Exception as e:

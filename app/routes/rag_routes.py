@@ -44,8 +44,8 @@ from app.services.utils import (
 from app.services.document_prompts import (
     get_document_specific_prompt, get_file_type_prompt
 )
-from app.services.hackrx_solver import (
-    hackrx_solver, should_use_hackrx_solver, is_hackrx_document
+from app.services.agentic_executor_1 import (
+    mission_execution_agent, should_use_mission_execution_agent, is_hackrx_document
 )
 from config import Config
 
@@ -216,8 +216,17 @@ async def hackrx_run():
         filename = f"document.{file_extension}" if file_extension else "document.pdf"
         file_obj = FileWrapper(response.content, filename)
         
-        # Get appropriate prompt based on file type
-        document_specific_prompt = get_document_specific_prompt(documents_url)
+        # Extract document content for Agentic Builder
+        try:
+            document_content = response.content.decode('utf-8', errors='ignore')
+        except:
+            document_content = str(response.content)
+        
+        # Determine file type for Agentic Builder
+        file_type = file_extension if file_extension else "pdf"
+        
+        # Get appropriate prompt based on file type using Agentic Builder
+        document_specific_prompt = get_document_specific_prompt(documents_url, document_content, file_type)
         if not document_specific_prompt and file_extension:
             document_specific_prompt = get_file_type_prompt(file_extension)
         
@@ -250,13 +259,13 @@ async def hackrx_run():
         print(f"📝 Processing {len(questions)} questions in parallel")
         
         # Check if this is a HackRx document and if any questions need the solver
-        use_hackrx_solver = is_hackrx_document(documents_url)
+        use_mission_execution_agent = is_hackrx_document(documents_url)
         hackrx_questions = []
         regular_questions = []
         
-        if use_hackrx_solver:
+        if use_mission_execution_agent:
             for i, question in enumerate(questions):
-                if should_use_hackrx_solver(question, documents_url):
+                if should_use_mission_execution_agent(question, documents_url):
                     hackrx_questions.append((i, question))
                 else:
                     regular_questions.append((i, question))
@@ -271,7 +280,7 @@ async def hackrx_run():
         if hackrx_questions:
             print("\n🚀 EXECUTING HACKRX MISSION...")
             try:
-                flight_number, trace_info = hackrx_solver.solve()
+                flight_number, trace_info = mission_execution_agent.execute_mission()
                 print(f"✅ Flight number retrieved: {flight_number}")
                 print(f"🔍 Trace: {trace_info}")
                 
@@ -291,15 +300,15 @@ async def hackrx_run():
         # Process regular questions with RAG
         if regular_questions:
             regular_question_texts = [q[1] for q in regular_questions]
-            regular_answers = await process_questions_parallel(regular_question_texts, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension)
+            regular_answers = await process_questions_parallel(regular_question_texts, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension, document_content=document_content, file_type=file_type)
             
             # Fill in answers for regular questions
             for i, (idx, question) in enumerate(regular_questions):
                 answers[idx] = regular_answers[i]
         
         # If no HackRx solver was used, process all questions normally
-        if not use_hackrx_solver:
-            answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension)
+        if not use_mission_execution_agent:
+            answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension, document_content=document_content, file_type=file_type)
         
         questions_time = time.time() - questions_start
         total_time = time.time() - start_time

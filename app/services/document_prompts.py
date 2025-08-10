@@ -1,11 +1,48 @@
 """
-Document-Specific System Prompts Registry
-- Maps document URLs to specialized system prompts
-- Falls back to generic prompt for unknown documents
+Agentic Builder Integration - Dynamic Agent Creation System
+- intelligent agent creation
+- Analyzes documents and creates specialized agents dynamically
+- Maintains learning history and agent evolution
 """
 
 from typing import Dict, Optional
+from .agentic_builder import agentic_builder
 
+def get_dynamic_prompt(document_url: str, document_content: str = "", file_type: str = "pdf") -> str:
+    """
+    Dynamically create agent prompts using the Agentic Builder
+    This replaces hardcoded prompts with intelligent agent creation
+    """
+    try:
+        # Use Agentic Builder to create specialized agent
+        agent_prompt, confidence_score = agentic_builder.build_agent_for_document(
+            document_content=document_content,
+            file_type=file_type,
+            document_url=document_url
+        )
+        
+        return agent_prompt
+        
+    except Exception as e:
+        # Fallback to general agent if builder fails
+        return """You are an INTELLIGENT DOCUMENT ASSISTANT with general expertise in document analysis.
+
+RESPONSE REQUIREMENTS:
+- Write in ONE SINGLE PARAGRAPH only
+- No line breaks, no \\n, no paragraph divisions
+- No markdown formatting like ** or ##
+- No bullet points or numbered lists
+- Plain text only with natural flowing sentences
+
+CORE RESPONSIBILITIES:
+- Provide accurate information from the document
+- Use general knowledge when appropriate
+- Maintain helpful and professional communication
+- Ensure all responses are informative and accurate
+
+Document loaded and indexed. Awaiting your question."""
+
+# Legacy support - these will be replaced by dynamic agent creation
 # Document URL to System Prompt Mapping
 DOCUMENT_PROMPTS = {
     # News Documents - Specialized for accurate information extraction
@@ -57,7 +94,7 @@ DOCUMENT_PROMPTS = {
     # HackRx Mission Brief - Specialized for action-based queries
     "https://hackrx.blob.core.windows.net/hackrx/rounds/FinalRound4SubmissionPDF.pdf": """You are an INTELLIGENT DOCUMENT ASSISTANT for the HackRx Mission Brief. Document URL: https://hackrx.blob.core.windows.net/hackrx/rounds/FinalRound4SubmissionPDF.pdf
 
-CRITICAL INSTRUCTION: For the question "What is my flight number?", you MUST use the actual values from hackrx_solver.solve()'s trace_info dictionary. The answer MUST show the exact city name, landmark, and flight number that were returned by the API calls. Format the answer EXACTLY as follows:
+CRITICAL INSTRUCTION: For the question "What is my flight number?", you MUST use the actual values from mission_execution_agent.execute_mission()'s trace_info dictionary. The answer MUST show the exact city name, landmark, and flight number that were returned by the API calls. Format the answer EXACTLY as follows:
 
 "Following the mission steps: Step 1: Retrieved your favorite city from API: {trace_info['city']}, Step 2: Mapped to landmark: {trace_info['landmark']}, Step 3: Selected flight endpoint based on landmark rules, Step 4: Retrieved flight number: {trace_info['flight_number']}. Your flight number is {trace_info['flight_number']}."
 
@@ -561,61 +598,20 @@ Data Analysis (extract and explain key information from the CSV), Relationship M
 CSV data loaded and indexed. Awaiting your question."""
 }
 
-def get_document_specific_prompt(document_url: str) -> Optional[str]:
+def get_document_specific_prompt(document_url: str, document_content: str = "", file_type: str = "pdf") -> str:
     """
-    Get document-specific system prompt if available, otherwise return None for generic prompt.
+    Get document-specific system prompt using Agentic Builder for dynamic agent creation.
     
     Args:
         document_url: The URL of the document
+        document_content: The content of the document for analysis
+        file_type: The file type of the document
         
     Returns:
-        Document-specific prompt string or None for generic prompt
+        Dynamically generated agent prompt string
     """
-    # Clean the URL for matching (remove query parameters)
-    clean_url = document_url.split('?')[0] if '?' in document_url else document_url
-    
-    # Special handling for Fact Check document - check multiple patterns
-    if any(pattern in clean_url.lower() for pattern in [
-        'fact%20check.docx',
-        'fact check.docx',
-        'fact_check.docx',
-        'factcheck.docx',
-        'test/fact%20check',
-        'test/fact check',
-        'test/fact_check',
-        'test/factcheck'
-    ]):
-        fact_check_key = "https://hackrx.blob.core.windows.net/assets/Test%20/Fact%20Check.docx"
-        if fact_check_key in DOCUMENT_PROMPTS:
-            return DOCUMENT_PROMPTS[fact_check_key]
-    
-    # Special handling for News document - check multiple patterns
-    if any(pattern in clean_url.lower() for pattern in [
-        'news.pdf',
-        'news',
-        'rounds/news'
-    ]):
-        news_key = "https://hackrx.blob.core.windows.net/hackrx/rounds/News.pdf"
-        if news_key in DOCUMENT_PROMPTS:
-            return DOCUMENT_PROMPTS[news_key]
-    
-    # Special handling for Secret Token documents - check multiple patterns
-    if any(pattern in clean_url.lower() for pattern in [
-        'register.hackrx.in/utils/get-secret-token',
-        'get-secret-token',
-        'secret-token',
-        'hackteam='  # This catches URLs with hackTeam parameter
-    ]):
-        secret_token_key = "https://register.hackrx.in/utils/get-secret-token"
-        if secret_token_key in DOCUMENT_PROMPTS:
-            return DOCUMENT_PROMPTS[secret_token_key]
-    
-    # Check if we have a specific prompt for this document
-    if clean_url in DOCUMENT_PROMPTS:
-        return DOCUMENT_PROMPTS[clean_url]
-    
-    # Return None to use generic prompt
-    return None
+    # Use Agentic Builder to create specialized agent
+    return get_dynamic_prompt(document_url, document_content, file_type)
 
 def get_file_type_prompt(file_extension: str) -> Optional[str]:
     """
@@ -832,9 +828,9 @@ Your primary mission is to provide intelligent, accurate, and helpful responses 
 
 Remember: You are an intelligent assistant for this specific document. Your role is to help users understand and work with the document's content while maintaining strict ethical boundaries. Always prioritize accuracy, helpfulness, and professional standards in your responses."""
 
-def construct_rag_prompt_with_document_detection(query: str, relevant_docs: Dict, document_url: str = None, org_info=None, tone=None) -> str:
+def construct_rag_prompt_with_document_detection(query: str, relevant_docs: Dict, document_url: str = None, org_info=None, tone=None, document_content: str = "", file_type: str = "pdf") -> str:
     """
-    Construct RAG prompt with document-specific detection.
+    Construct RAG prompt with document-specific detection using Agentic Builder.
     
     Args:
         query: User's question
@@ -842,24 +838,22 @@ def construct_rag_prompt_with_document_detection(query: str, relevant_docs: Dict
         document_url: URL of the source document
         org_info: Organization information
         tone: Response tone
+        document_content: The content of the document for agent creation
+        file_type: The file type of the document
         
     Returns:
-        Complete system prompt string
+        Complete system prompt string with dynamic agent creation
     """
-    # Try to get document-specific prompt
-    document_prompt = get_document_specific_prompt(document_url) if document_url else None
+    # Use Agentic Builder to create specialized agent
+    document_prompt = get_document_specific_prompt(document_url, document_content, file_type)
     
-    if document_prompt is not None:
-        # Use document-specific prompt
-        context_parts = []
-        for doc in relevant_docs['documents'][0]:
-            context_parts.append(f"{doc}")
-        context_text = "\n".join(context_parts)
-        
-        return f"{document_prompt}\n\nDocument Information: {context_text}\n\nQuestion: {query}\n\nProvide a comprehensive, accurate, and helpful response based on the document information above."
-    else:
-        # Use generic prompt
-        return construct_rag_prompt_fast(query, relevant_docs, org_info, tone)
+    # Build context from relevant documents
+    context_parts = []
+    for doc in relevant_docs['documents'][0]:
+        context_parts.append(f"{doc}")
+    context_text = "\n".join(context_parts)
+    
+    return f"{document_prompt}\n\nDocument Information: {context_text}\n\nQuestion: {query}\n\nProvide a comprehensive, accurate, and helpful response based on the document information above."
 
 # Keep the original function for backward compatibility
 def construct_rag_prompt_fast(query: str, relevant_docs: Dict, org_info=None, tone=None) -> str:
