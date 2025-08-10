@@ -1,189 +1,390 @@
-import asyncio
-import json
-import math
-from flask import Blueprint, request, jsonify
-from app.services.utils import (
-    get_raw_data_pdf, get_raw_data_txt, get_raw_data_from_docx,
-    get_raw_data_csv, get_raw_data_xlsx, recursive_chunker
-)
-from app.services.openai_services import (
-    store_vector_data_azure, process_user_query,
-)
-from app.services.gemini_services import generate_influencer_list
+"""
+Optimized RAG Routes for Speed - SPEED OPTIMIZED (<60s)
+- Parallel question processing
+- Fast document processing
+- Optimized caching
+- Intelligent reasoning with speed focus
+"""
+
 import os
+import re
 import uuid
-import time
+import json
 import logging
+from datetime import datetime
+from io import BytesIO
+from typing import Dict, List, Optional, Any
+import time
+import hashlib
+import threading
+
+# Quart and async libraries
+from quart import Blueprint, request, jsonify
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import requests
+
+# Document processing
+import docx2txt
+from pypdf import PdfReader
+
+# Vector database
+import chromadb
+from chromadb.config import Settings
+
+# Import services
+from app.services.openai_services import (
+    get_embeddings_parallel, process_and_store_document_fast, 
+    query_vector_db_fast, generate_answer_fast, process_questions_parallel,
+    process_questions_parallel_concise, process_questions_parallel_dynamic
+)
+from app.services.utils import (
+    clean_text, extract_text_from_file, chunk_text_advanced
+)
+from app.services.agentic_prompts import (
+    get_document_specific_prompt, get_file_type_prompt
+)
+from app.services.agentic_executor_1 import (
+    mission_execution_agent, should_use_mission_execution_agent, is_hackrx_document
+)
+from config import Config
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("rag_system.log")
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Use absolute path for embeddings directory
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-EMBEDDINGS_DIR = os.path.join(BASE_DIR, '..', '..', 'embeddings')
-STORAGE_DIR = os.path.join(BASE_DIR, '..', '..', 'storage')
-
+# Create blueprint
 rag_routes = Blueprint('rag_routes', __name__)
 
-@rag_routes.route('/upload', methods=['POST'])
-async def upload_document():
+# Initialize ChromaDB with optimized settings
+try:
+    chroma_client = chromadb.PersistentClient(
+        path=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
+        settings=Settings(
+            anonymized_telemetry=False,
+            allow_reset=True,
+            persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db")
+        )
+    )
+    logger.info("ChromaDB initialized for speed optimization")
+except Exception as e:
+    logger.warning(f"ChromaDB initialization failed: {e}")
+    chroma_client = None
+
+# Thread pool for parallel processing
+executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
+
+# Simple logging lock to prevent file conflicts
+log_lock = threading.Lock()
+
+def log_request_background(document_url: str, questions: List[str], answers: List[str]):
+    """Log request data to file in background without affecting speed."""
+    def write_log():
+        try:
+            with log_lock:
+                log_entry = {
+                    "timestamp": datetime.now().isoformat(),
+                    "document_url": document_url,
+                    "questions": questions,
+                    "answers": answers
+                }
+                
+                with open("request_logs.jsonl", "a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            # Silently fail to not affect performance
+            pass
+    
+    # Run in background thread to avoid blocking
+    threading.Thread(target=write_log, daemon=True).start()
+
+@rag_routes.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint."""
+    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
+@rag_routes.route('/hackrx/run', methods=['POST'])
+async def hackrx_run():
+    """Optimized HackRX API endpoint with parallel processing for speed (<60s)."""
     try:
         start_time = time.time()
-        file = request.files['file']
-        uuid_val = str(uuid.uuid4())
-        file_name = file.filename
-
-        # Validate file extension
-        if not any(file_name.lower().endswith(ext) for ext in ['.txt', '.pdf', '.docx', '.csv', '.xlsx', '.xls']):
-            logger.error("Unsupported file extension")
-            return jsonify({"success": False, "message": "Unsupported file extension"}), 400
-
-        # Save file locally
-        storage_dir = os.path.join(STORAGE_DIR, uuid_val)
-        os.makedirs(storage_dir, exist_ok=True)
-        file_path = os.path.join(storage_dir, file_name)
-        file.save(file_path)
-        logger.info(f"File saved: {file_path}, Time: {time.time() - start_time:.2f}s")
-
-        # Extract text
-        extract_start = time.time()
-        if file_name.lower().endswith('.txt'):
-            raw_text = get_raw_data_txt(file_path)
-        elif file_name.lower().endswith('.pdf'):
-            raw_text = get_raw_data_pdf(file_path)
-        elif file_name.lower().endswith('.docx'):
-            raw_text = get_raw_data_from_docx(file_path)
-        elif file_name.lower().endswith('.csv'):
-            raw_text = get_raw_data_csv(file_path)
-        elif file_name.lower().endswith(('.xlsx', '.xls')):
-            raw_text = get_raw_data_xlsx(file_path)
-        else:
-            logger.error("File extension validation failed after initial check")
-            return jsonify({"success": False, "message": "File extension validation failed"}), 400
-        logger.info(f"Text extracted, Time: {time.time() - extract_start:.2f}s")
-        logger.info(f"Extracted text (first 100 chars): {str(raw_text)[:100] if raw_text else 'None'}")
-
-        # Chunk text
-        chunk_start = time.time()
-        text_chunks = recursive_chunker(raw_text)
-        logger.info(f"Text chunked ({len(text_chunks)} chunks), Time: {time.time() - chunk_start:.2f}s")
-
-        # Store embeddings
-        embedding_dir = os.path.join(EMBEDDINGS_DIR, uuid_val)
-        os.makedirs(embedding_dir, exist_ok=True)
-        embed_start = time.time()
-        await store_vector_data_azure(text_chunks, embedding_dir)
-        logger.info(f"Embeddings stored, Time: {time.time() - embed_start:.2f}s")
-
-        total_time = time.time() - start_time
-        logger.info(f"Total upload time: {total_time:.2f}s")
-
-        return jsonify({
-            "success": True,
-            "message": "File uploaded and processed successfully",
-            "uuid": uuid_val
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error in upload: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
-
-@rag_routes.route('/qna', methods=['POST'])
-async def qna():
-    try:
-        data = request.get_json()
-        uuid_val = data.get('uuid')  # Optional
-        question = data.get('question')
-
-        if not question:
-            return jsonify({"success": False, "message": "Question is required"}), 400
-
-        # Initialize response structure
-        response_data = {
-            "success": True,
-            "document_used": False,
-            "search_parameters": None,
-            "logs": []
-        }
-
-        # Process the query
-        processing_uuid = uuid_val if uuid_val else "default_"+str(uuid.uuid4())
-        ai_response = await process_user_query(processing_uuid, question, [])
         
-        # Handle the response structure
-        if 'error' in ai_response:
-            response_data["success"] = False
-            response_data["error"] = ai_response.get("error", "Unknown error")
+        # Check for API key authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "Missing or invalid Authorization header"}), 401
         
-        # Update response data from AI response
-        response_data["document_used"] = ai_response.get("context_used", False)
-        response_data["logs"] = ai_response.get("logs", [])
+        api_key = auth_header.split(' ')[1]
         
-        # Handle search parameters
-        if 'search_parameters' in ai_response:
-            if isinstance(ai_response['search_parameters'], dict):
-                response_data["search_parameters"] = ai_response['search_parameters']
+        # Parse request data
+        data = await request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+        
+        documents_url = data.get('documents')
+        questions = data.get('questions', [])
+        
+        if not documents_url:
+            return jsonify({"error": "Documents URL is required"}), 400
+        
+        if not questions or not isinstance(questions, list):
+            return jsonify({"error": "Questions must be a non-empty list"}), 400
+        
+        # Fast document processing
+        collection_name = "hackrx_documents"
+        logger.info(f"Processing document from URL: {documents_url}")
+        
+        # Clear existing collection to avoid mixing old and new documents
+        try:
+            chroma_client.delete_collection(collection_name)
+            logger.info(f"Cleared existing collection: {collection_name}")
+        except Exception as e:
+            logger.info(f"Collection {collection_name} didn't exist or already cleared: {e}")
+        
+        # Download the PDF from the URL
+        logger.info(f"Downloading document from URL: {documents_url}")
+        try:
+            response = requests.get(documents_url, timeout=Config.REQUEST_TIMEOUT)
+            logger.info(f"Download response status: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to download document: HTTP {response.status_code}")
+                return jsonify({"error": f"Failed to download document: {response.status_code}"}), 400
+            
+            logger.info(f"Successfully downloaded {len(response.content)} bytes")
+            
+        except Exception as download_error:
+            logger.error(f"Error downloading document: {download_error}")
+            return jsonify({"error": f"Failed to download document: {str(download_error)}"}), 400
+        
+        # Create a file-like object for processing
+        class FileWrapper:
+            def __init__(self, content, filename):
+                self.content = content
+                self.filename = filename
+
+                self.position = 0
+            
+            def read(self, size=None):
+                if size is None:
+                    # Return all remaining content
+                    result = self.content[self.position:]
+                    self.position = len(self.content)
+                    return result
+                else:
+                    # Return specified size
+                    end_pos = min(self.position + size, len(self.content))
+                    result = self.content[self.position:end_pos]
+                    self.position = end_pos
+                    return result
+            
+            def seek(self, offset, whence=0):
+                if whence == 0:
+                    self.position = offset
+                elif whence == 1:
+                    self.position += offset
+                elif whence == 2:
+                    self.position = len(self.content) + offset
+                return self.position
+            
+            def tell(self):
+                return self.position
+            
+            def seekable(self):
+                return True
+        
+        # Detect file type from URL
+        file_extension = None
+        if '.' in documents_url:
+            # Extract just the file extension, ignoring query parameters
+            url_path = documents_url.split('?')[0]  # Remove query parameters
+            if '.' in url_path:
+                file_extension = url_path.split('.')[-1].lower()
             else:
-                try:
-                    response_data["search_parameters"] = json.loads(ai_response['search_parameters'])
-                except (json.JSONDecodeError, TypeError):
-                    response_data["search_parameters"] = {
-                        "raw_response": str(ai_response['search_parameters']),
-                        "note": "Response formatting issue"
-                    }
+                pass  # No file extension found
         else:
-            response_data["search_parameters"] = None
-            response_data["success"] = False
-            response_data["error"] = "No search parameters generated"
-
-        return jsonify(response_data)
-
-    except Exception as e:
-        logger.error(f"Unexpected error in QnA: {str(e)}")
-        return jsonify({
-            "success": False,
-            "message": "Internal server error",
-            "error": str(e),
-            "logs": [{"type": "error", "message": f"System error: {str(e)}"}]
-        }), 500
+            pass  # No '.' found in URL
+        
+        # Create file wrapper with correct filename
+        filename = f"document.{file_extension}" if file_extension else "document.pdf"
+        file_obj = FileWrapper(response.content, filename)
+        
+        # Extract document content for Agentic Builder
+        try:
+            document_content = response.content.decode('utf-8', errors='ignore')
+        except:
+            document_content = str(response.content)
+        
+        # Determine file type for Agentic Builder
+        file_type = file_extension if file_extension else "pdf"
+        
+        # Get appropriate prompt based on file type using Agentic Builder
+        document_specific_prompt = get_document_specific_prompt(documents_url, document_content, file_type)
+        if not document_specific_prompt and file_extension:
+            document_specific_prompt = get_file_type_prompt(file_extension)
+        
+        # Step 1: Fast document processing
+        document_start = time.time()
+        print("\n" + "="*80)
+        print("📄 FAST DOCUMENT PROCESSING")
+        print("="*80)
+        print(f"🔗 Downloading from: {documents_url}")
+        print(f"📁 File type: {file_extension or 'unknown'}")
+        if document_specific_prompt:
+            print(f"🎯 Using specialized prompt for: {file_extension or 'document'}")
+        
+        # Process document with parallel operations
+        document_result = await process_and_store_document_fast(file_obj, collection_name, chroma_client, file_extension)
+        
+        if "error" in document_result:
+            logger.error(f"Document processing failed: {document_result['error']}")
+            return jsonify({"error": f"Document processing failed: {document_result['error']}"}), 400
+        
+        document_time = time.time() - document_start
+        print(f"✅ Document processed in {document_time:.2f}s")
+        print(f"📊 Chunks processed: {document_result.get('chunks_processed', 0)}")
+        
+        # Step 2: Fast parallel question processing
+        questions_start = time.time()
+        print("\n" + "="*80)
+        print("❓ FAST PARALLEL QUESTION PROCESSING")
+        print("="*80)
+        print(f"📝 Processing {len(questions)} questions in parallel")
+        
+        # Check if this is a HackRx document and if any questions need the solver
+        use_mission_execution_agent = is_hackrx_document(documents_url)
+        hackrx_questions = []
+        regular_questions = []
+        
+        if use_mission_execution_agent:
+            for i, question in enumerate(questions):
+                if should_use_mission_execution_agent(question, documents_url):
+                    hackrx_questions.append((i, question))
+                else:
+                    regular_questions.append((i, question))
+            
+            print(f"🎯 HackRx solver questions: {len(hackrx_questions)}")
+            print(f"📚 Regular RAG questions: {len(regular_questions)}")
+        
+        # Process questions
+        answers = [""] * len(questions)  # Initialize answers array
+        
+        # Handle HackRx solver questions first
+        if hackrx_questions:
+            print("\n🚀 EXECUTING HACKRX MISSION...")
+            try:
+                flight_number, trace_info = mission_execution_agent.execute_mission()
+                print(f"✅ Flight number retrieved: {flight_number}")
+                print(f"🔍 Trace: {trace_info}")
+                
+                # Fill in answers for HackRx questions using the structured format
+                for idx, question in hackrx_questions:
+                    answers[idx] = f"Following the mission steps: Step 1: Retrieved your favorite city from API: {trace_info['city']}, Step 2: Mapped to landmark: {trace_info['landmark']}, Step 3: Selected flight endpoint based on landmark rules, Step 4: Retrieved flight number: {trace_info['flight_number']}. Your flight number is {trace_info['flight_number']}."
+                
+            except Exception as e:
+                error_msg = f"Failed to execute HackRx mission: {str(e)}"
+                print(f"❌ {error_msg}")
+                logger.error(error_msg)
+                
+                # Fill error responses for HackRx questions
+                for idx, question in hackrx_questions:
+                    answers[idx] = f"Error executing mission: {str(e)}"
+        
+        # Process regular questions with RAG
+        if regular_questions:
+            regular_question_texts = [q[1] for q in regular_questions]
+            regular_answers = await process_questions_parallel(regular_question_texts, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension, document_content=document_content, file_type=file_type)
+            
+            # Fill in answers for regular questions
+            for i, (idx, question) in enumerate(regular_questions):
+                answers[idx] = regular_answers[i]
+        
+        # If no HackRx solver was used, process all questions normally
+        if not use_mission_execution_agent:
+            answers = await process_questions_parallel(questions, collection_name, chroma_client, document_url=documents_url, file_extension=file_extension, document_content=document_content, file_type=file_type)
+        
+        questions_time = time.time() - questions_start
+        total_time = time.time() - start_time
+        
+        print("\n" + "="*80)
+        print("📋 QUESTIONS AND ANSWERS")
+        print("="*80)
+        
+        for i, answer in enumerate(answers):
+            print(f"\n✅ Q{i+1}: {questions[i]}")
+            print(f"✅ A{i+1}: {answer[:200]}..." if len(answer) > 200 else f"✅ A{i+1}: {answer}")
+        
+        print("\n" + "="*80)
+        print("📊 PERFORMANCE SUMMARY")
+        print("="*80)
+        print(f"📄 Document Processing Time: {document_time:.2f}s")
+        print(f"❓ Questions Processing Time: {questions_time:.2f}s")
+        print(f"⏱️  Total Time: {total_time:.2f}s")
+        print(f"📝 Questions Count: {len(questions)}")
+        print(f"🎯 Target Time: {Config.TARGET_PROCESSING_TIME}s")
+        print(f"⚡ Performance: {'✅ FAST' if total_time <= Config.TARGET_PROCESSING_TIME else '⚠️  SLOW'}")
+        print("="*80)
+        
+        # Prepare result
+        result = {
+            "answers": answers,
+            "performance": {
+                "document_processing_time": round(document_time, 2),
+                "questions_processing_time": round(questions_time, 2),
+                "total_time": round(total_time, 2),
+                "questions_count": len(questions)
+            }
+        }
+        
+        # Log request data in background
+        log_request_background(documents_url, questions, answers)
+        
+        return jsonify(result)
     
-@rag_routes.route('/discover-influencers', methods=['POST'])
-async def discover_influencers():
-    """
-    Endpoint to discover influencers based on search parameters
-    """
-    try:
-        data = request.get_json()
-        search_params = data.get('search_parameters')
-        
-        if not search_params:
-            return jsonify({
-                "success": False,
-                "message": "Search parameters are required"
-            }), 400
-
-        # Generate influencer list using Gemini
-        result = await generate_influencer_list(search_params)
-        
-        if not result.get('success'):
-            return jsonify({
-                "success": False,
-                "message": result.get('message', 'Failed to generate influencers'),
-                "error": result.get('error')
-            }), 500
-
-        return jsonify({
-            "success": True,
-            "count": result.get('count', 0),
-            "influencers": result.get('influencers', []),
-            "logs": result.get('logs', [])
-        })
-
     except Exception as e:
-        logger.error(f"Error in influencer discovery: {str(e)}")
+        logger.error(f"Error in hackrx/run endpoint: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@rag_routes.route('/hackrx/logs', methods=['GET'])
+def get_request_logs():
+    """Get recent request logs (last 50 entries)."""
+    try:
+        logs = []
+        if os.path.exists("request_logs.jsonl"):
+            with open("request_logs.jsonl", "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                # Get last 50 entries
+                recent_lines = lines[-50:] if len(lines) > 50 else lines
+                for line in recent_lines:
+                    try:
+                        logs.append(json.loads(line.strip()))
+                    except:
+                        continue
+        
         return jsonify({
-            "success": False,
-            "message": "Internal server error",
-            "error": str(e)
-        }), 500
+            "total_logs": len(logs),
+            "logs": logs
+        })
+    except Exception as e:
+        logger.error(f"Error getting request logs: {e}")
+        return jsonify({"error": str(e)}), 500
+
+def optimize_for_speed():
+    """Apply speed optimizations to routes."""
+    global executor
+    
+    # Optimize thread pool
+    executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS_CHUNKING)
+    
+    # Clear caches for fresh start
+    logger.info("Speed optimizations applied to routes")
+
+# Initialize optimizations
+optimize_for_speed()
