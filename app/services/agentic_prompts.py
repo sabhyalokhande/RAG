@@ -62,12 +62,18 @@ def get_dynamic_prompt_with_executor(document_url: str, document_content: str = 
             document_url=document_url
         )
         
-        # Get the executor file path if one was created
+        # Check if this agent needs an executor file
         executor_path = None
+        # Find the most recently created agent that needs an executor
         for agent in agentic_builder.agent_registry.values():
-            if agent.prompt_template == agent_prompt:
-                executor_path = agent.executor_file_path
-                break
+            # Check if this agent type needs an executor
+            if hasattr(agent, 'prompt_template') and agent.prompt_template:
+                pattern = agentic_builder._find_pattern_by_template(agent.prompt_template)
+                if pattern and pattern.get("needs_executor", False):
+                    # Use the most recently created agent's executor
+                    if not executor_path or agent.agent_id.split('_')[-1] > executor_path.split('_')[-1].split('.')[0]:
+                        executor_path = agent.executor_file_path
+                        logger.info(f"Agent {agent.agent_id} requires executor: {executor_path}")
         
         logger.info(f"Dynamic agent created with confidence: {confidence_score}, executor: {executor_path}")
         return agent_prompt, executor_path

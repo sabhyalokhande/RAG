@@ -41,7 +41,7 @@ from app.services.utils import (
     enhance_context_for_accuracy, prioritize_chunks_by_relevance,
     truncate_text_for_embeddings, process_chunks_parallel
 )
-from app.services.document_prompts import (
+from app.services.agentic_prompts import (
     construct_rag_prompt_with_document_detection,
     get_document_specific_prompt, get_file_type_prompt
 )

@@ -41,7 +41,7 @@ from app.services.openai_services import (
 from app.services.utils import (
     clean_text, extract_text_from_file, chunk_text_advanced
 )
-from app.services.document_prompts import (
+from app.services.agentic_prompts import (
     get_document_specific_prompt, get_file_type_prompt
 )
 from app.services.agentic_executor_1 import (
